@@ -74,6 +74,9 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> entity() => _get('/accounting/entity');
 
+  /// Oturum açan kullanıcının kendi bilgileri (her iki rol için geçerli).
+  Future<Map<String, dynamic>> me() => _get('/users/me');
+
   Future<Map<String, dynamic>> summary({
     String? startDate,
     String? endDate,

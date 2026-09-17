@@ -33,6 +33,13 @@ void main() {
     final entity = await api.entity();
     expect(entity['id'], isNotNull, reason: 'Muhasebe entity dönmeli');
 
+    final me = await api.me();
+    expect(
+      '${me['full_name']}'.trim(),
+      isNotEmpty,
+      reason: 'Üst barda gösterilecek kullanıcı adı gelmeli',
+    );
+
     final summary = await api.summary();
     expect(
       summary['sales_total'],

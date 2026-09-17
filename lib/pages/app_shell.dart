@@ -19,8 +19,53 @@ class FinkitShell extends StatefulWidget {
 class _FinkitShellState extends State<FinkitShell> {
   int _index = 0;
   int _refreshKey = 0;
+  String _userName = '';
+  String _companyName = '';
 
-  void _refresh() => setState(() => _refreshKey++);
+  @override
+  void initState() {
+    super.initState();
+    _loadIdentity();
+  }
+
+  /// Üst barda oturum açan kullanıcının adı ve şirketi gösterilir.
+  Future<void> _loadIdentity() async {
+    if (widget.api.demoMode) {
+      if (!mounted) return;
+      setState(() {
+        _userName = 'Demo Kullanıcı';
+        _companyName = '';
+      });
+      return;
+    }
+    String? name;
+    String? company;
+    try {
+      final me = await widget.api.me();
+      name = me['full_name']?.toString();
+    } catch (_) {
+      // Kullanıcı bilgisi alınamazsa mevcut değer korunur.
+    }
+    try {
+      final entity = await widget.api.entity();
+      // Ticari ad boş bırakılmışsa unvana düşülür.
+      final trade = entity['trade_name']?.toString().trim();
+      final legal = entity['legal_name']?.toString().trim();
+      company = (trade != null && trade.isNotEmpty) ? trade : legal;
+    } catch (_) {
+      // Şirket bilgisi alınamazsa mevcut değer korunur.
+    }
+    if (!mounted) return;
+    setState(() {
+      if (name != null && name.isNotEmpty) _userName = name;
+      if (company != null && company.isNotEmpty) _companyName = company;
+    });
+  }
+
+  void _refresh() {
+    setState(() => _refreshKey++);
+    _loadIdentity();
+  }
 
   void _openReports() {
     Navigator.of(context).push(
@@ -386,6 +431,8 @@ class _FinkitShellState extends State<FinkitShell> {
           children: [
             _Topbar(
               demoMode: widget.api.demoMode,
+              userName: _userName,
+              companyName: _companyName,
               onRefresh: _refresh,
               onMenu: () => setState(() => _index = 3),
             ),
@@ -405,13 +452,37 @@ class _FinkitShellState extends State<FinkitShell> {
 class _Topbar extends StatelessWidget {
   const _Topbar({
     required this.demoMode,
+    required this.userName,
+    required this.companyName,
     required this.onRefresh,
     required this.onMenu,
   });
 
   final bool demoMode;
+  final String userName;
+  final String companyName;
   final VoidCallback onRefresh;
   final VoidCallback onMenu;
+
+  /// "Musavir İsmi" -> "Mİ"; boşsa Finkit logosu kullanılır.
+  String get _initials {
+    final parts = userName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'F';
+    if (parts.length == 1) {
+      return parts.first.characters.take(2).toString().toUpperCase();
+    }
+    return (parts[0].characters.first + parts[1].characters.first)
+        .toUpperCase();
+  }
+
+  String get _greeting {
+    final first = userName.trim().split(RegExp(r'\s+')).first;
+    return first.isEmpty ? 'Merhaba' : 'Merhaba, $first';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -435,10 +506,10 @@ class _Topbar extends StatelessWidget {
                 ),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Center(
+              child: Center(
                 child: Text(
-                  'MK',
-                  style: TextStyle(
+                  _initials,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
                     fontSize: 13,
@@ -452,14 +523,21 @@ class _Topbar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Merhaba, Muhasebe',
+                Text(
+                  _greeting,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 Text(
-                  demoMode ? 'Demo modu' : 'Finkit A.Ş.',
+                  demoMode
+                      ? 'Demo modu'
+                      : (companyName.isNotEmpty ? companyName : 'Finkit'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: FinkitColors.muted,
                     fontSize: 11,
