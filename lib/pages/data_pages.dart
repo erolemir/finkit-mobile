@@ -443,16 +443,20 @@ class _CashPageState extends State<CashPage> {
                     const SizedBox(height: 16),
                     Row(
                       children: [
-                        _DarkMetric(
-                          'Giriş',
-                          moneyText(data.cashFlow['inflow']),
-                          Icons.arrow_downward_rounded,
+                        Expanded(
+                          child: _DarkMetric(
+                            'Giriş',
+                            moneyText(data.cashFlow['inflow']),
+                            Icons.arrow_downward_rounded,
+                          ),
                         ),
                         const SizedBox(width: 12),
-                        _DarkMetric(
-                          'Çıkış',
-                          moneyText(data.cashFlow['outflow']),
-                          Icons.arrow_upward_rounded,
+                        Expanded(
+                          child: _DarkMetric(
+                            'Çıkış',
+                            moneyText(data.cashFlow['outflow']),
+                            Icons.arrow_upward_rounded,
+                          ),
                         ),
                       ],
                     ),
@@ -785,9 +789,7 @@ class ReportsPage extends StatelessWidget {
     return FutureBuilder<Map<String, dynamic>>(
       future: api.summary(),
       builder: (context, snapshot) {
-        final summary = Map<String, dynamic>.from(
-          snapshot.data?['summary'] ?? {},
-        );
+        final summary = snapshot.data ?? const <String, dynamic>{};
         final reportItems = const [
           ('Satış Raporu', 'sales', Icons.trending_up_rounded),
           ('Tahsilat Raporu', 'collections', Icons.call_received_rounded),

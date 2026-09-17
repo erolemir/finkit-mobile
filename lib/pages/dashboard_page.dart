@@ -92,7 +92,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 subtitle: 'İşletmenizin bugünkü finansal görünümü.',
               ),
               SizedBox(
-                height: 154,
+                height: 176,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
                   children: [

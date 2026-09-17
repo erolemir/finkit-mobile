@@ -161,7 +161,7 @@ class MetricCard extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Container(
-        constraints: const BoxConstraints(minHeight: 138),
+        constraints: const BoxConstraints(minHeight: 166),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: dark ? FinkitColors.ink : FinkitColors.surface,
@@ -179,6 +179,7 @@ class MetricCard extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
