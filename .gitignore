@@ -1,0 +1,36 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins-dependencies
+.packages
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.metadata
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/build/
+android/build/
+*.jks
+*.keystore
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/ephemeral/
+ios/Runner.xcworkspace/xcuserdata/
+ios/Runner.xcodeproj/xcuserdata/
+ios/Runner/GeneratedPluginRegistrant.*
+
+# Prototip bağımlılıkları (yalnızca tasarım referansı)
+design-reference/**/node_modules/
+
+# Genel
+.DS_Store
+*.log

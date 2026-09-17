@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#f6f7f9" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Finkit Mobil</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="login-screen" class="login-screen">
+        <div class="login-orb login-orb-one"></div>
+        <div class="login-orb login-orb-two"></div>
+        <div class="login-panel">
+          <div class="brand-lockup">
+            <div class="brand-mark">F</div>
+            <div>
+              <p class="eyebrow">Finkit</p>
+              <h1>Finansınız<br />cebinizde.</h1>
+            </div>
+          </div>
+          <p class="login-copy">
+            Satış, gider, tahsilat, KDV ve nakit akışınızı tek ekrandan yönetin.
+          </p>
+          <form id="login-form" class="login-form">
+            <label>
+              <span>E-posta</span>
+              <input id="login-email" type="email" autocomplete="email" value="musavir@gmail.com" required />
+            </label>
+            <label>
+              <span>Şifre</span>
+              <input id="login-password" type="password" autocomplete="current-password" value="12345678" required />
+            </label>
+            <label>
+              <span>Rol</span>
+              <select id="login-role">
+                <option value="ADVISOR">Müşavir</option>
+                <option value="CLIENT">Mükellef</option>
+              </select>
+            </label>
+            <label>
+              <span>API Adresi</span>
+              <input id="login-api" type="url" value="https://test.finkit.com.tr/api" required />
+            </label>
+            <button class="primary-button" type="submit">
+              <span>Giriş Yap</span>
+            </button>
+          </form>
+          <button id="demo-button" class="text-button" type="button">Demo verileriyle incele</button>
+          <p id="login-error" class="form-error" hidden></p>
+          <div class="security-note">
+            <span class="dot"></span>
+            Bağlantı şifreli ve cihaz üzerinde saklanır.
+          </div>
+        </div>
+      </section>
+
+      <section id="app-shell" class="app-shell" hidden>
+        <header class="topbar">
+          <button id="profile-button" class="avatar-button" aria-label="Profil">
+            <span id="avatar-initials">MK</span>
+            <i class="online-dot"></i>
+          </button>
+          <div class="welcome-copy">
+            <p id="welcome-label">Merhaba, Muhasebe</p>
+            <span id="company-label">Finkit A.Ş.</span>
+          </div>
+          <div class="topbar-actions">
+            <button id="refresh-button" class="icon-button" aria-label="Yenile">
+              <svg viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+            </button>
+            <button id="notification-button" class="icon-button has-badge" aria-label="Bildirimler">
+              <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <main id="content" class="content"></main>
+
+        <button id="quick-fab" class="quick-fab" aria-label="Hızlı işlem">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+
+        <nav class="bottom-nav" aria-label="Ana navigasyon">
+          <button class="nav-item active" data-view="dashboard">
+            <svg viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>
+            <span>Özet</span>
+          </button>
+          <button class="nav-item" data-view="sales">
+            <svg viewBox="0 0 24 24"><path d="M6 2h12l2 5H4zM5 7v14h14V7M9 11h6"/></svg>
+            <span>Faturalar</span>
+          </button>
+          <button id="center-fab" class="center-nav" aria-label="Ekle">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button class="nav-item" data-view="cash">
+            <svg viewBox="0 0 24 24"><path d="M3 7h18v12H3zM3 10h18M7 15h2M3 7l3-3h12l3 3"/></svg>
+            <span>Kasa</span>
+          </button>
+          <button class="nav-item" data-view="menu">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <span>Menü</span>
+          </button>
+        </nav>
+      </section>
+    </div>
+
+    <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+    <section id="action-sheet" class="action-sheet" hidden aria-modal="true" role="dialog">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div>
+          <p class="eyebrow">Hızlı İşlem</p>
+          <h2>Ne eklemek istiyorsunuz?</h2>
+        </div>
+        <button id="sheet-close" class="icon-button" aria-label="Kapat">
+          <svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="sheet-actions" class="sheet-actions"></div>
+    </section>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
