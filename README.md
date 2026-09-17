@@ -57,3 +57,12 @@ Flutter'ın AOT derleyicisi Windows'ta Türkçe karakter içeren yollarda
 altında tutulur. Projeyi taşımanız gerekirse ASCII karakterli bir yol seçin.
 
 Paket kimliği: `com.finkit.mobile`
+
+## Release imzalama
+
+Release APK, `android/keystore/finkit-release.jks` anahtarı ve `android/key.properties`
+bilgileriyle imzalanır (ikisi de depoya eklenmez, `.gitignore` içindedir). Bu dosyaları
+yedekleyin; kaybolurlarsa aynı uygulamanın güncellemesi yüklenemez.
+
+`android/key.properties` yoksa derleme debug anahtarıyla imzalanır; bu durumda APK yine
+kurulabilir, ancak mağaza/güncelleme akışı için kalıcı anahtar gerekir.
