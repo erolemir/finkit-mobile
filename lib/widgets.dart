@@ -744,8 +744,7 @@ class QuickTile extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        constraints: const BoxConstraints(minHeight: 104),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
         decoration: BoxDecoration(
           color: primary ? FinkitColors.ink : FinkitColors.surface,
           borderRadius: BorderRadius.circular(16),
@@ -760,38 +759,52 @@ class QuickTile extends StatelessWidget {
             ),
           ],
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: primary
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : const Color(0xFFF0F2F5),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                icon,
-                color: primary ? Colors.white : FinkitColors.ink,
-                size: 21,
-              ),
-            ),
-            const SizedBox(height: 9),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: primary ? Colors.white : FinkitColors.text,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                height: 1.2,
-              ),
-            ),
-          ],
+        // Dar telefon ekranlarında kutu yüksekliği küçüldüğü için ikon ve
+        // boşluklar mevcut alana göre daraltılır; taşma oluşmaz.
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 104;
+            final iconBox = compact ? 34.0 : 42.0;
+            final iconGlyph = compact ? 18.0 : 21.0;
+            final gap = compact ? 5.0 : 9.0;
+            final fontSize = compact ? 10.0 : 11.0;
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: iconBox,
+                  height: iconBox,
+                  decoration: BoxDecoration(
+                    color: primary
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : const Color(0xFFF0F2F5),
+                    borderRadius: BorderRadius.circular(compact ? 11 : 14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: primary ? Colors.white : FinkitColors.ink,
+                    size: iconGlyph,
+                  ),
+                ),
+                SizedBox(height: gap),
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: primary ? Colors.white : FinkitColors.text,
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w800,
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

@@ -278,6 +278,7 @@ Future<bool> showSalesInvoiceForm(BuildContext context, FinkitApi api) async {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   initialValue: partnerId,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Müşteri',
                     prefixIcon: Icon(Icons.person_outline_rounded),
@@ -299,6 +300,7 @@ Future<bool> showSalesInvoiceForm(BuildContext context, FinkitApi api) async {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<int?>(
                     initialValue: productId,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Ürün / Hizmet (opsiyonel)',
                       prefixIcon: Icon(Icons.inventory_2_outlined),
@@ -644,8 +646,24 @@ class _TotalsPreview extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: style),
-        Text(value, style: style),
+        Flexible(
+          child: Text(
+            label,
+            style: style,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            value,
+            style: style,
+            maxLines: 1,
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }

@@ -263,6 +263,7 @@ class _FinkitShellState extends State<FinkitShell> {
                 const SizedBox(height: 18),
                 DropdownButtonFormField<int>(
                   initialValue: partnerId,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Müşteri',
                     prefixIcon: Icon(Icons.person_outline_rounded),
@@ -280,6 +281,7 @@ class _FinkitShellState extends State<FinkitShell> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
                   initialValue: accountId,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Kasa / Banka',
                     prefixIcon: Icon(Icons.account_balance_wallet_outlined),
