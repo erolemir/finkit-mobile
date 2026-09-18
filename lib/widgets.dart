@@ -24,6 +24,24 @@ String dateText(dynamic value) {
   return parsed == null ? '—' : _date.format(parsed);
 }
 
+/// Rapor anahtarını ekranda gösterilecek başlığa çevirir.
+String reportTitle(String report) {
+  return switch (report) {
+    'sales' => 'Satış Raporu',
+    'collections' => 'Tahsilat Raporu',
+    'expenses' => 'Gider Raporu',
+    'payments' => 'Ödemeler Raporu',
+    'vat' => 'KDV Raporu',
+    'income-expense' => 'Gelir-Gider Raporu',
+    'cash-flow' => 'Nakit Akışı',
+    'cash-register' => 'Kasa Raporu',
+    'stock' => 'Stok Raporu',
+    'aging' => 'Vade Yaşlandırma',
+    'payroll' => 'Bordro Raporu',
+    _ => 'Rapor',
+  };
+}
+
 String statusLabel(String? value) {
   const labels = {
     'DRAFT': 'Taslak',

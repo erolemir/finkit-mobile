@@ -17,19 +17,28 @@ class ApiException implements Exception {
 class FinkitApi {
   static const defaultBaseUrl = 'https://test.finkit.com.tr/api';
   static const _tokenKey = 'finkit_token';
+  static const _refreshTokenKey = 'finkit_refresh_token';
+  static const _roleKey = 'finkit_role';
   static const _baseUrlKey = 'finkit_api_base';
   static const _emailKey = 'finkit_email';
 
   String baseUrl = defaultBaseUrl;
   String? token;
+  String? refreshToken;
   String? email;
+  String? role;
   bool demoMode = false;
+
+  /// Yenileme başarısız olduğunda (oturum bittiğinde) çağrılır.
+  void Function()? onSessionExpired;
 
   Future<void> restore() async {
     final prefs = await SharedPreferences.getInstance();
     baseUrl = prefs.getString(_baseUrlKey) ?? defaultBaseUrl;
     token = prefs.getString(_tokenKey);
+    refreshToken = prefs.getString(_refreshTokenKey);
     email = prefs.getString(_emailKey);
+    role = prefs.getString(_roleKey);
   }
 
   Future<void> login({
@@ -52,12 +61,20 @@ class FinkitApi {
       );
     }
     token = body['access_token'] as String?;
+    refreshToken = body['refresh_token'] as String?;
     this.email = email.trim();
+    this.role = role;
     demoMode = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_baseUrlKey, baseUrl);
     await prefs.setString(_emailKey, this.email!);
+    await prefs.setString(_roleKey, role);
     if (token != null) await prefs.setString(_tokenKey, token!);
+    if (refreshToken != null) {
+      await prefs.setString(_refreshTokenKey, refreshToken!);
+    } else {
+      await prefs.remove(_refreshTokenKey);
+    }
   }
 
   Future<void> enableDemo() async {
@@ -67,9 +84,61 @@ class FinkitApi {
 
   Future<void> logout() async {
     token = null;
+    refreshToken = null;
     demoMode = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tokenKey);
+    await prefs.remove(_refreshTokenKey);
+  }
+
+  /// Süresi dolan erişim jetonunu yeniler (token rotation destekli).
+  Future<bool> _refreshAccessToken() async {
+    final current = refreshToken;
+    if (current == null || demoMode) return false;
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/refresh'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh_token': current}),
+      );
+      if (response.statusCode >= 400) return false;
+      final body = _decode(response);
+      final access = body['access_token'] as String?;
+      if (access == null) return false;
+      final rotated = body['refresh_token'] as String?;
+      token = access;
+      if (rotated != null) refreshToken = rotated;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_tokenKey, access);
+      if (rotated != null) await prefs.setString(_refreshTokenKey, rotated);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// İsteği gönderir; 401 dönerse jetonu yenileyip bir kez daha dener.
+  Future<http.Response> _authorized(
+    Future<http.Response> Function() send,
+  ) async {
+    var response = await send();
+    if (response.statusCode == 401 && !demoMode) {
+      if (refreshToken == null) {
+        // Yenileme jetonu yoksa oturum bitmiştir; giriş ekranına dönülür.
+        await logout();
+        onSessionExpired?.call();
+        return response;
+      }
+      final refreshed = await _refreshAccessToken();
+      if (refreshed) {
+        response = await send();
+      }
+      if (response.statusCode == 401) {
+        await logout();
+        onSessionExpired?.call();
+      }
+    }
+    return response;
   }
 
   Future<Map<String, dynamic>> entity() => _get('/accounting/entity');
@@ -204,13 +273,183 @@ class FinkitApi {
   Future<Map<String, dynamic>> salesInvoice(int invoiceId) =>
       _get('/accounting/sales-invoices/$invoiceId');
 
+  // ── Bildirimler ────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> notifications({int pageSize = 50}) =>
+      _list('/notification-center/', query: {'page_size': '$pageSize'});
+
+  Future<int> unreadNotificationCount() async {
+    final body = await _get('/notification-center/unread-count');
+    final value = body['count'] ?? body['unread_count'] ?? body['total'] ?? 0;
+    return int.tryParse('$value') ?? 0;
+  }
+
+  Future<Map<String, dynamic>> markNotificationRead(int id) =>
+      _patch('/notification-center/$id/read', const {});
+
+  Future<Map<String, dynamic>> markAllNotificationsRead() =>
+      _patch('/notification-center/read-all', const {});
+
+  Future<Map<String, dynamic>> registerDeviceToken({
+    required String deviceToken,
+    required String platform,
+  }) => _post('/notification-center/fcm-register', {
+    'token': deviceToken,
+    'platform': platform,
+  });
+
+  // ── Sohbet ─────────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> chatHistory(int otherUserId) =>
+      _list('/chat/history/$otherUserId');
+
+  Future<Map<String, dynamic>> sendChatMessage({
+    required int receiverId,
+    required String content,
+  }) => _post('/chat/send', {'receiver_id': receiverId, 'content': content});
+
+  Future<List<Map<String, dynamic>>> chatUnreadCounts() =>
+      _list('/chat/unread-counts');
+
+  Future<void> markChatRead(int otherUserId) async {
+    await _patch('/chat/read/$otherUserId', const {});
+  }
+
+  // ── Cari / mükellef ────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> clients() => _list('/clients');
+
+  Future<Map<String, dynamic>> clientProfile() => _get('/clients/me');
+
+  Future<Map<String, dynamic>> advisorProfile() => _get('/advisors/me');
+
+  // ── Belgeler ───────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> allDocuments() => _list('/documents/all');
+
+  Future<List<Map<String, dynamic>>> clientDocuments(int clientId) =>
+      _list('/documents/$clientId');
+
+  /// Belge yükler; `filePath` seçilen dosyanın tam yoludur.
+  Future<Map<String, dynamic>> uploadDocument({
+    required int clientId,
+    required String documentType,
+    required String filePath,
+    String? fileName,
+    String? documentDate,
+  }) => _upload(
+    '/documents/upload-single',
+    fields: {
+      'client_id': '$clientId',
+      'document_type': documentType,
+      'document_date': ?documentDate,
+    },
+    fileField: 'file',
+    filePath: filePath,
+    fileName: fileName,
+  );
+
+  String documentDownloadUrl(int documentId) =>
+      '$baseUrl/documents/download/$documentId';
+
+  // ── Ödemeler ───────────────────────────────────────────────
+  Future<Map<String, dynamic>> paymentsSummary() => _get('/payments/summary');
+
+  Future<List<Map<String, dynamic>>> paymentHistory() =>
+      _list('/payments/history');
+
+  Future<List<Map<String, dynamic>>> myPayments() =>
+      _list('/payments/my-history');
+
+  Future<List<Map<String, dynamic>>> installments() => _list('/installments');
+
+  Future<List<Map<String, dynamic>>> myInstallments() =>
+      _list('/installments/my');
+
+  Future<List<Map<String, dynamic>>> extraCharges() => _list('/extra-charges');
+
+  Future<List<Map<String, dynamic>>> myExtraCharges() =>
+      _list('/extra-charges/my');
+
+  // ── E-Fatura ───────────────────────────────────────────────
+  Future<Map<String, dynamic>> einvoiceAccount() => _get('/einvoice/account');
+
+  Future<List<Map<String, dynamic>>> einvoiceInvoices() =>
+      _list('/einvoice/invoices', query: {'page_size': '50'});
+
+  Future<List<Map<String, dynamic>>> einvoiceInbox() =>
+      _list('/einvoice/inbox', query: {'page_size': '50'});
+
+  Future<List<Map<String, dynamic>>> einvoiceDespatches() =>
+      _list('/einvoice/despatches', query: {'page_size': '50'});
+
+  Future<List<Map<String, dynamic>>> clientEinvoiceInvoices() =>
+      _list('/client-einvoice/invoices', query: {'page_size': '50'});
+
+  Future<List<Map<String, dynamic>>> clientEinvoiceInbox() =>
+      _list('/client-einvoice/inbox', query: {'page_size': '50'});
+
+  // ── Takvim, hatırlatıcı, GİB ───────────────────────────────
+  Future<List<Map<String, dynamic>>> calendarEvents() =>
+      _list('/calendar/events');
+
+  Future<List<Map<String, dynamic>>> gibTaxCalendar() =>
+      _list('/general/gib-tax-calendar');
+
+  Future<List<Map<String, dynamic>>> reminderRules() =>
+      _list('/reminder-rules');
+
+  Future<Map<String, dynamic>> createCalendarEvent({
+    required String title,
+    required String eventDate,
+    String? description,
+    String eventType = 'PERSONAL',
+    bool isNotificationActive = true,
+  }) => _post('/calendar/events', {
+    'title': title,
+    'description': ?description,
+    'event_date': eventDate,
+    'event_type': eventType,
+    'is_notification_active': isNotificationActive,
+  });
+
+  // ── Diğer modüller ─────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> messageTemplates() =>
+      _list('/advisors/templates');
+
+  Future<List<Map<String, dynamic>>> supportTickets() =>
+      _list('/support/tickets/my');
+
+  Future<List<Map<String, dynamic>>> forumCategories() =>
+      _list('/forum/categories');
+
+  Future<List<Map<String, dynamic>>> forumTopics() => _list('/forum/topics');
+
+  Future<List<Map<String, dynamic>>> announcements() =>
+      _list('/general/announcements');
+
+  Future<List<Map<String, dynamic>>> gibAnnouncements() =>
+      _list('/general/gib-announcements');
+
+  Future<List<Map<String, dynamic>>> incomingMatchRequests() =>
+      _list('/matching/requests/incoming');
+
+  Future<List<Map<String, dynamic>>> myMatchRequests() =>
+      _list('/matching/requests/my');
+
+  Future<List<Map<String, dynamic>>> danismaQuestions() =>
+      _list('/danisma/questions');
+
+  Future<List<Map<String, dynamic>>> myDanismaQuestions() =>
+      _list('/danisma/questions/my');
+
+  Future<Map<String, dynamic>> systemStatus() => _get('/general/system-status');
+
   Future<Map<String, dynamic>> _get(
     String path, {
     Map<String, String>? query,
   }) async {
     if (demoMode) return DemoData.get(path);
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    final response = await http.get(uri, headers: _headers());
+    final response = await _authorized(
+      () => http.get(uri, headers: _headers()),
+    );
     final body = _decode(response);
     if (response.statusCode >= 400) {
       throw ApiException(
@@ -237,15 +476,74 @@ class FinkitApi {
     Map<String, dynamic> body,
   ) async {
     if (demoMode) return DemoData.post(path, body);
-    final response = await http.post(
-      Uri.parse('$baseUrl$path'),
-      headers: _headers(json: true),
-      body: jsonEncode(body),
+    final response = await _authorized(
+      () => http.post(
+        Uri.parse('$baseUrl$path'),
+        headers: _headers(json: true),
+        body: jsonEncode(body),
+      ),
     );
     final decoded = _decode(response);
     if (response.statusCode >= 400) {
       throw ApiException(
         _detail(decoded) ?? 'İşlem tamamlanamadı',
+        response.statusCode,
+      );
+    }
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    if (demoMode) return DemoData.post(path, body);
+    final response = await _authorized(
+      () => http.patch(
+        Uri.parse('$baseUrl$path'),
+        headers: _headers(json: true),
+        body: jsonEncode(body),
+      ),
+    );
+    final decoded = _decode(response);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(decoded) ?? 'İşlem tamamlanamadı',
+        response.statusCode,
+      );
+    }
+    return decoded;
+  }
+
+  /// Dosya yükleme (multipart/form-data).
+  Future<Map<String, dynamic>> _upload(
+    String path, {
+    required Map<String, String> fields,
+    required String fileField,
+    required String filePath,
+    String? fileName,
+  }) async {
+    if (demoMode) return DemoData.post(path, fields);
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
+    final authToken = token;
+    if (authToken != null) {
+      request.headers['Authorization'] = 'Bearer $authToken';
+    }
+    request.headers['Accept'] = 'application/json';
+    request.fields.addAll(fields);
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        fileField,
+        filePath,
+        filename: fileName,
+      ),
+    );
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final decoded = _decode(response);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(decoded) ?? 'Dosya yüklenemedi',
         response.statusCode,
       );
     }

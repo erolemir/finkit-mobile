@@ -21,15 +21,25 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
   late final TextEditingController _email;
   late final TextEditingController _password;
   late final TextEditingController _baseUrl;
-  String _role = 'ADVISOR';
+  String _role = const String.fromEnvironment(
+    'FINKIT_DEFAULT_ROLE',
+    defaultValue: 'ADVISOR',
+  );
   bool _loading = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    // Son başarılı girişte kullanılan rol hatırlanır.
+    _role = widget.api.role ?? _role;
     _email = TextEditingController(
-      text: widget.api.email ?? 'musavir@gmail.com',
+      text:
+          widget.api.email ??
+          const String.fromEnvironment(
+            'FINKIT_DEFAULT_EMAIL',
+            defaultValue: 'musavir@gmail.com',
+          ),
     );
     _password = TextEditingController(text: '12345678');
     _baseUrl = TextEditingController(text: widget.api.baseUrl);

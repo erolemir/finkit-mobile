@@ -33,7 +33,13 @@ void main() {
     await tester.tap(find.text('Menü').last);
     await tester.pumpAndSettle();
 
-    for (final page in ['Müşteriler', 'Personel ve Bordro', 'Raporlar']) {
+    for (final page in ['Cari Hesaplar', 'Personel ve Bordro', 'Raporlar']) {
+      await tester.dragUntilVisible(
+        find.text(page),
+        find.byType(ListView).first,
+        const Offset(0, -160),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text(page));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: '$page açılmalı');

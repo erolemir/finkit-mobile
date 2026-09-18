@@ -31,18 +31,31 @@ void main() {
     await tester.tap(find.text('Menü').last);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Müşteriler'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'Müşteriler açılmalı');
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Raporlar'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'Rapor listesi açılmalı');
-
-    await tester.tap(find.text('Satış Raporu'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'Rapor detayı açılmalı');
+    for (final page in const [
+      'Cari Hesaplar',
+      'Personel ve Bordro',
+      'Raporlar',
+      'Belgeler',
+      'E-Fatura',
+      'Sohbet',
+      'Takvim ve Hatırlatıcılar',
+      'Bildirimler',
+    ]) {
+      await tester.dragUntilVisible(
+        find.text(page),
+        find.byType(ListView).first,
+        const Offset(0, -160),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(page));
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '$page ekranı hatasız açılmalı',
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+    }
   });
 }

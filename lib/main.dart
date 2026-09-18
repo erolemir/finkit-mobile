@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'api_client.dart';
 import 'pages/app_shell.dart';
 import 'pages/login_page.dart';
+import 'services/app_notifications.dart';
 import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Telefonun kendi alt gezinme çubuğunu gizle; durum çubuğu görünür kalır.
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: [SystemUiOverlay.top],
+  );
+  // Bildirim kanalı ve izinleri uygulama açılışında hazırlanır.
+  await AppNotifications.instance.init();
   runApp(const FinkitMobileApp());
 }
 
@@ -25,6 +34,10 @@ class _FinkitMobileAppState extends State<FinkitMobileApp> {
   @override
   void initState() {
     super.initState();
+    // Jeton yenilenemezse kullanıcı giriş ekranına döner.
+    _api.onSessionExpired = () {
+      if (mounted) setState(() => _authenticated = false);
+    };
     _restore();
   }
 

@@ -915,8 +915,9 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
           if (snapshot.hasError) {
             return _PageError(
               message: snapshot.error.toString(),
-              onRetry: () =>
-                  setState(() => _future = widget.api.report(widget.report)),
+              onRetry: () => setState(() {
+                _future = widget.api.report(widget.report);
+              }),
             );
           }
           final summary = Map<String, dynamic>.from(
