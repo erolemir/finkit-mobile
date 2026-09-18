@@ -2293,3 +2293,115 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
   }
   return created == true ? temporaryPassword : null;
 }
+
+/// Mükellef kartını düzenler (müşavir).
+Future<bool> showClientEditForm(
+  BuildContext context,
+  FinkitApi api, {
+  required int clientId,
+  required String companyTitle,
+  required String fullName,
+  required String phoneNumber,
+  required String taxNumber,
+  required double monthlyFee,
+  required int paymentDueDay,
+}) async {
+  final company = TextEditingController(text: companyTitle);
+  final name = TextEditingController(text: fullName);
+  final phone = TextEditingController(text: phoneNumber);
+  final tax = TextEditingController(text: taxNumber);
+  final fee = TextEditingController(text: monthlyFee.toStringAsFixed(2));
+  final dueDay = TextEditingController(text: '$paymentDueDay');
+
+  final saved = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (_) => _EntrySheet(
+      title: 'Mükellef Kartını Düzenle',
+      subtitle: 'Ünvan, iletişim ve ücret bilgileri güncellenir.',
+      saveLabel: 'Değişiklikleri Kaydet',
+      onSave: () async {
+        await api.updateClient(
+          clientId,
+          companyTitle: company.text.trim(),
+          fullName: name.text.trim(),
+          phoneNumber: _nullIfEmpty(phone.text),
+          taxNumber: _nullIfEmpty(tax.text),
+          monthlyFee: _number(fee.text),
+          paymentDueDay: int.tryParse(dueDay.text.trim()) ?? paymentDueDay,
+        );
+      },
+      buildFields: (refresh) => [
+        TextFormField(
+          controller: company,
+          decoration: const InputDecoration(
+            labelText: 'Firma Ünvanı',
+            prefixIcon: Icon(Icons.business_outlined),
+          ),
+          validator: (value) => _requiredText(value, 'Ünvan gerekli'),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: name,
+          decoration: const InputDecoration(
+            labelText: 'Yetkili Ad Soyad',
+            prefixIcon: Icon(Icons.person_outline_rounded),
+          ),
+          validator: (value) => _requiredText(value, 'Ad soyad gerekli'),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: tax,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Vergi No'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: phone,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Telefon'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: fee,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Aylık Ücret'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: dueDay,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Ödeme Günü'),
+                validator: (value) {
+                  final parsed = int.tryParse((value ?? '').trim());
+                  if (parsed == null || parsed < 1 || parsed > 31) {
+                    return '1-31 arası';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+  return saved ?? false;
+}

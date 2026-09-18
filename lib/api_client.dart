@@ -729,6 +729,10 @@ class FinkitApi {
     'payment_due_day': ?paymentDueDay,
   });
 
+  /// Mükellef için ödeme bağlantısı üretir (müşavir).
+  Future<Map<String, dynamic>> generatePaymentLink(int clientId) =>
+      _get('/payments/generate-link/$clientId');
+
   Future<Map<String, dynamic>> clientProfile() => _get('/clients/me');
 
   Future<Map<String, dynamic>> advisorProfile() => _get('/advisors/me');

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../api_client.dart';
@@ -240,6 +241,72 @@ class _ClientsListPageState extends State<ClientsListPage> {
                       },
                       icon: const Icon(Icons.vpn_key_outlined, size: 18),
                       label: const Text('Giriş Bilgileri'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final clientId = int.tryParse('${item['user_id']}');
+                        if (clientId == null) return;
+                        final messenger = ScaffoldMessenger.of(context);
+                        Navigator.pop(sheetContext);
+                        try {
+                          final link = await widget.api.generatePaymentLink(
+                            clientId,
+                          );
+                          final url =
+                              link['payment_url']?.toString() ??
+                              link['url']?.toString() ??
+                              link['link']?.toString() ??
+                              link.toString();
+                          await Clipboard.setData(ClipboardData(text: url));
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Ödeme linki kopyalandı: $url'),
+                            ),
+                          );
+                        } catch (error) {
+                          messenger.showSnackBar(
+                            SnackBar(content: Text(error.toString())),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      label: const Text('Ödeme Linki'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final clientId = int.tryParse('${item['user_id']}');
+                        final user = item['user'] is Map
+                            ? Map<String, dynamic>.from(item['user'] as Map)
+                            : const <String, dynamic>{};
+                        if (clientId == null) return;
+                        Navigator.pop(sheetContext);
+                        final updated = await showClientEditForm(
+                          context,
+                          widget.api,
+                          clientId: clientId,
+                          companyTitle: _text(item['company_title'], ''),
+                          fullName: _text(user['full_name'], ''),
+                          phoneNumber: _text(user['phone_number'], ''),
+                          taxNumber: _text(item['tax_no'], ''),
+                          monthlyFee:
+                              double.tryParse('${item['monthly_fee']}') ?? 0,
+                          paymentDueDay:
+                              int.tryParse('${item['payment_due_day']}') ?? 1,
+                        );
+                        if (updated && mounted) setState(() => _localRefresh++);
+                      },
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Düzenle'),
                     ),
                   ),
                 ],
