@@ -5,8 +5,37 @@ import 'package:finkit_mobile/pages/app_shell.dart';
 import 'package:finkit_mobile/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Menüdeki bir özelliği görünür alana getirip açar.
+Future<void> openMenuEntry(WidgetTester tester, String label) async {
+  final finder = find.text(label);
+  await tester.dragUntilVisible(
+    finder,
+    find.byType(ListView).first,
+    const Offset(0, -160),
+  );
+  await tester.pumpAndSettle();
+  // Alt menü çubuğunun üstünde kalması için gerekirse biraz daha kaydır.
+  final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+  final rect = tester.getRect(finder);
+  if (rect.bottom > screen.height - 150) {
+    await tester.drag(
+      find.byType(ListView).first,
+      Offset(0, -(rect.bottom - (screen.height - 170))),
+    );
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
 
 void main() {
+  setUp(() {
+    // Not defteri gibi yerel depolama kullanan ekranlar için sahte depo.
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('panel ve sekmeler demo verisiyle hatasız açılır', (
     WidgetTester tester,
   ) async {
@@ -33,22 +62,21 @@ void main() {
 
     for (final page in const [
       'Cari Hesaplar',
+      'Harici Mükellefler',
       'Personel ve Bordro',
       'Raporlar',
       'Belgeler',
       'E-Fatura',
+      'E-Belgeler',
       'Sohbet',
+      'Mail Gönder',
+      'Forum',
+      'Hesaplama Yap',
+      'Not Defteri',
       'Takvim ve Hatırlatıcılar',
       'Bildirimler',
     ]) {
-      await tester.dragUntilVisible(
-        find.text(page),
-        find.byType(ListView).first,
-        const Offset(0, -160),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(page));
-      await tester.pumpAndSettle();
+      await openMenuEntry(tester, page);
       expect(
         tester.takeException(),
         isNull,

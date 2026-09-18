@@ -441,6 +441,158 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> systemStatus() => _get('/general/system-status');
 
+  // ── Toplu mesaj (mail / WhatsApp) ──────────────────────────
+  Future<Map<String, dynamic>> sendBulkMessage({
+    required List<int> clientIds,
+    required String channel,
+    required String message,
+    String? subject,
+  }) => _post('/notifications/send', {
+    'client_ids': clientIds,
+    'channel': channel,
+    'message': message,
+    'subject': ?subject,
+  });
+
+  // ── Destek ─────────────────────────────────────────────────
+  Future<Map<String, dynamic>> createSupportTicket({
+    required String name,
+    required String contact,
+    required String subject,
+    required String message,
+  }) => _post('/support/tickets/auth', {
+    'name': name,
+    'contact': contact,
+    'subject': subject,
+    'message': message,
+  });
+
+  // ── Forum ──────────────────────────────────────────────────
+  Future<Map<String, dynamic>> createForumTopic({
+    required int categoryId,
+    required String title,
+    required String content,
+  }) => _post('/forum/topics', {
+    'category_id': categoryId,
+    'title': title,
+    'content': content,
+  });
+
+  Future<List<Map<String, dynamic>>> forumPosts(int topicId) =>
+      _list('/forum/topics/$topicId/posts');
+
+  Future<Map<String, dynamic>> createForumPost({
+    required int topicId,
+    required String content,
+  }) => _post('/forum/topics/$topicId/posts', {'content': content});
+
+  // ── Danışma ────────────────────────────────────────────────
+  Future<Map<String, dynamic>> createDanismaQuestion({
+    required String title,
+    required String content,
+    int? categoryId,
+  }) => _post('/danisma/questions', {
+    'title': title,
+    'content': content,
+    'category_id': ?categoryId,
+  });
+
+  Future<List<Map<String, dynamic>>> danismaCategories() =>
+      _list('/danisma/categories');
+
+  Future<List<Map<String, dynamic>>> danismaAnswers(int questionId) =>
+      _list('/danisma/questions/$questionId/answers');
+
+  Future<Map<String, dynamic>> createDanismaAnswer({
+    required int questionId,
+    required String content,
+    required double price,
+  }) => _post('/danisma/questions/$questionId/answers', {
+    'content': content,
+    'price': price,
+  });
+
+  // ── Elle ödeme ve ek ücret ─────────────────────────────────
+  Future<Map<String, dynamic>> createManualPayment({
+    required int clientId,
+    required double amount,
+    String paymentMethod = 'havale_eft',
+    String paymentStatus = 'PAID',
+    String? description,
+    DateTime? paymentDate,
+  }) => _post('/payments/manual', {
+    'client_id': clientId,
+    'amount': amount,
+    'payment_method': paymentMethod,
+    'payment_type': 'muhasebe',
+    'payment_status': paymentStatus,
+    'description': ?description,
+    'payment_date': ?paymentDate?.toIso8601String(),
+  });
+
+  Future<Map<String, dynamic>> createExtraCharge({
+    required int clientId,
+    required String name,
+    required double amount,
+    DateTime? dueDate,
+    String? description,
+  }) => _post('/extra-charges', {
+    'client_id': clientId,
+    'name': name,
+    'amount': amount,
+    'due_date': ?(dueDate == null ? null : _dateValue(dueDate)),
+    'description': ?description,
+  });
+
+  Future<Map<String, dynamic>> markExtraChargePaid(
+    int chargeId, {
+    String paymentMethod = 'havale_eft',
+  }) => _post('/extra-charges/$chargeId/mark-paid', {
+    'payment_method': paymentMethod,
+  });
+
+  // ── Harici mükellef ve giriş bilgileri ─────────────────────
+  Future<List<Map<String, dynamic>>> externalClients() =>
+      _list('/external-clients');
+
+  Future<Map<String, dynamic>> createExternalClient({
+    required String fullName,
+    required String companyTitle,
+    String? taxNo,
+    String? tckn,
+    String? phoneNumber,
+    String? email,
+    double monthlyFee = 0,
+  }) => _post('/external-clients', {
+    'full_name': fullName,
+    'company_title': companyTitle,
+    'tax_no': ?taxNo,
+    'tckn': ?tckn,
+    'phone_number': ?phoneNumber,
+    'email': ?email,
+    'monthly_fee': monthlyFee,
+    'payment_due_day': 1,
+  });
+
+  Future<List<Map<String, dynamic>>> clientCredentials(int clientId) =>
+      _list('/clients/$clientId/credentials');
+
+  Future<Map<String, dynamic>> revealClientCredential(
+    int clientId,
+    String serviceKey,
+  ) => _get('/clients/$clientId/credentials/$serviceKey/reveal');
+
+  // ── Profil güncelleme ──────────────────────────────────────
+  Future<Map<String, dynamic>> updateProfile({
+    String? fullName,
+    String? phoneNumber,
+    String? city,
+  }) => _patch('/users/me', {
+    'full_name': ?fullName,
+    'phone_number': ?phoneNumber,
+    'city': ?city,
+  });
+
   Future<Map<String, dynamic>> _get(
     String path, {
     Map<String, String>? query,

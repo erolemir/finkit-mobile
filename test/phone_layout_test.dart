@@ -5,8 +5,13 @@ import 'package:finkit_mobile/pages/app_shell.dart';
 import 'package:finkit_mobile/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('kucuk ekranda tum sekmeler ve sayfalar tasmadan acilir', (
     WidgetTester tester,
   ) async {

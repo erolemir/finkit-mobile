@@ -12,6 +12,7 @@ import 'dashboard_page.dart';
 import 'data_pages.dart';
 import 'entry_forms.dart';
 import 'menu_page.dart';
+import 'more_pages.dart';
 import 'notification_center_page.dart';
 import 'platform_pages.dart';
 
@@ -237,6 +238,14 @@ class _FinkitShellState extends State<FinkitShell> {
           ),
         if (!_isClient)
           MenuEntry(
+            title: 'Harici Mükellefler',
+            subtitle: 'Portala girmeyen takip mükellefleri',
+            icon: Icons.folder_shared_outlined,
+            builder: (_) =>
+                ExternalClientsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        if (!_isClient)
+          MenuEntry(
             title: 'Personel ve Bordro',
             subtitle: 'Çalışan, puantaj ve bordro işlemleri',
             icon: Icons.groups_2_outlined,
@@ -279,6 +288,14 @@ class _FinkitShellState extends State<FinkitShell> {
             isClient: _isClient,
           ),
         ),
+        if (!_isClient)
+          MenuEntry(
+            title: 'E-Belgeler',
+            subtitle: 'Gönderilen ve gelen e-irsaliyeler',
+            icon: Icons.local_shipping_outlined,
+            builder: (_) =>
+                DespatchListPage(api: widget.api, refreshKey: _refreshKey),
+          ),
         MenuEntry(
           title: 'Duyurular',
           subtitle: 'Platform ve GİB duyuruları',
@@ -302,6 +319,14 @@ class _FinkitShellState extends State<FinkitShell> {
             isClient: _isClient,
           ),
         ),
+        if (!_isClient)
+          MenuEntry(
+            title: 'Mail Gönder',
+            subtitle: 'Toplu e-posta veya WhatsApp mesajı',
+            icon: Icons.outgoing_mail,
+            builder: (_) =>
+                BulkMessagePage(api: widget.api, refreshKey: _refreshKey),
+          ),
         if (!_isClient)
           MenuEntry(
             title: 'Forum',
@@ -391,6 +416,26 @@ class _FinkitShellState extends State<FinkitShell> {
             icon: Icons.article_outlined,
             builder: (_) =>
                 TemplatesListPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        MenuEntry(
+          title: 'Hesaplama Yap',
+          subtitle: 'KDV, stopaj ve maliyet hesapları',
+          icon: Icons.calculate_outlined,
+          builder: (_) => const CalculatorPage(),
+        ),
+        MenuEntry(
+          title: 'Not Defteri',
+          subtitle: 'Cihazınızda saklanan notlar',
+          icon: Icons.sticky_note_2_outlined,
+          builder: (_) => const NotesPage(),
+        ),
+        if (!_isClient)
+          MenuEntry(
+            title: 'Giriş Bilgileri',
+            subtitle: 'Mükellef kurum şifreleri kasası',
+            icon: Icons.vpn_key_outlined,
+            builder: (_) =>
+                CredentialsPage(api: widget.api, refreshKey: _refreshKey),
           ),
       ],
     );

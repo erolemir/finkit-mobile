@@ -7,6 +7,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'api_list_page.dart';
 import 'data_pages.dart';
+import 'more_pages.dart';
 
 /// Rapor listesi ve detayını birlikte açan sarmalayıcı ekran.
 class DashboardReportsPage extends StatelessWidget {
@@ -427,6 +428,17 @@ class PaymentsListPage extends StatelessWidget {
             ? 'Abonelik, müşavirlik ücreti ve ek ücret ödemeleriniz.'
             : 'Tahsil edilen ödemeler, ek ücretler ve taksitler.',
         refreshKey: refreshKey,
+        trailing: isClient
+            ? null
+            : IconButton.filled(
+                onPressed: () => _manualPaymentSheet(context),
+                style: IconButton.styleFrom(
+                  backgroundColor: FinkitColors.ink,
+                  foregroundColor: Colors.white,
+                ),
+                tooltip: 'Ödeme kaydet',
+                icon: const Icon(Icons.add_card_rounded),
+              ),
         loader: () async {
           final items = isClient
               ? await api.myPayments()
@@ -473,6 +485,168 @@ class PaymentsListPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Müşavir elle ödeme (nakit/havale) kaydeder.
+  Future<void> _manualPaymentSheet(BuildContext context) async {
+    List<Map<String, dynamic>> clients = const [];
+    try {
+      clients = await api.clients();
+    } catch (_) {
+      // Mükellef listesi alınamazsa kayıt yapılamaz.
+    }
+    if (!context.mounted) return;
+    if (clients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce mükellef eklemelisiniz.')),
+      );
+      return;
+    }
+    var clientId = int.tryParse('${clients.first['user_id']}');
+    final amount = TextEditingController();
+    final description = TextEditingController();
+    var method = 'havale_eft';
+    var status = 'PAID';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Ödeme Kaydet',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<int>(
+                  initialValue: clientId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Mükellef',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  items: clients
+                      .map(
+                        (client) => DropdownMenuItem<int>(
+                          value: int.tryParse('${client['user_id']}'),
+                          child: Text(
+                            _text(client['company_title'], 'Mükellef'),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setSheetState(() => clientId = value ?? clientId),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Tutar (₺)',
+                    prefixIcon: Icon(Icons.currency_lira_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: method,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Ödeme Yöntemi',
+                    prefixIcon: Icon(Icons.payments_outlined),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'nakit', child: Text('Nakit')),
+                    DropdownMenuItem(
+                      value: 'havale_eft',
+                      child: Text('Havale / EFT'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'kredi_karti',
+                      child: Text('Kredi kartı'),
+                    ),
+                    DropdownMenuItem(value: 'diger', child: Text('Diğer')),
+                  ],
+                  onChanged: (value) =>
+                      setSheetState(() => method = value ?? method),
+                ),
+                const SizedBox(height: 12),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'PAID', label: Text('Ödendi')),
+                    ButtonSegment(value: 'PENDING', label: Text('Bekliyor')),
+                  ],
+                  selected: {status},
+                  onSelectionChanged: (value) =>
+                      setSheetState(() => status = value.first),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: description,
+                  decoration: const InputDecoration(
+                    labelText: 'Açıklama (opsiyonel)',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final parsed = double.tryParse(
+                        amount.text.replaceAll(',', '.'),
+                      );
+                      if (clientId == null || parsed == null || parsed <= 0) {
+                        return;
+                      }
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await api.createManualPayment(
+                          clientId: clientId!,
+                          amount: parsed,
+                          paymentMethod: method,
+                          paymentStatus: status,
+                          description: description.text.trim().isEmpty
+                              ? null
+                              : description.text.trim(),
+                        );
+                        if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Ödeme kaydedildi')),
+                        );
+                      } catch (error) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(error.toString())),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.save_rounded, size: 18),
+                    label: const Text('Ödemeyi Kaydet'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    amount.dispose();
+    description.dispose();
   }
 }
 
@@ -854,6 +1028,15 @@ class SupportListPage extends StatelessWidget {
         title: 'Destek Talepleri',
         subtitle: 'Destek ekibine ilettiğiniz talepler ve yanıtlar.',
         refreshKey: refreshKey,
+        trailing: IconButton.filled(
+          onPressed: () => _createTicket(context),
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          tooltip: 'Yeni destek talebi',
+          icon: const Icon(Icons.add_comment_outlined),
+        ),
         loader: api.supportTickets,
         emptyIcon: Icons.support_agent_outlined,
         emptyTitle: 'Talep yok',
@@ -869,6 +1052,96 @@ class SupportListPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _createTicket(BuildContext context) async {
+    final subject = TextEditingController();
+    final message = TextEditingController();
+    String name = '';
+    String contact = '';
+    try {
+      final me = await api.me();
+      name = me['full_name']?.toString() ?? '';
+      contact = me['email']?.toString() ?? '';
+    } catch (_) {
+      // Kullanıcı bilgisi alınamazsa alanlar boş kalır.
+    }
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Yeni Destek Talebi',
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: subject,
+              decoration: const InputDecoration(
+                labelText: 'Konu',
+                prefixIcon: Icon(Icons.title_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: message,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Mesaj',
+                alignLabelWithHint: true,
+                prefixIcon: Icon(Icons.notes_rounded),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  if (subject.text.trim().isEmpty ||
+                      message.text.trim().isEmpty) {
+                    return;
+                  }
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    await api.createSupportTicket(
+                      name: name.isEmpty ? 'Finkit Kullanıcı' : name,
+                      contact: contact.isEmpty ? 'uygulama' : contact,
+                      subject: subject.text.trim(),
+                      message: message.text.trim(),
+                    );
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Talebiniz iletildi')),
+                    );
+                  } catch (error) {
+                    messenger.showSnackBar(
+                      SnackBar(content: Text(error.toString())),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Talebi Gönder'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    subject.dispose();
+    message.dispose();
   }
 }
 
@@ -888,6 +1161,15 @@ class ForumListPage extends StatelessWidget {
         title: 'Forum',
         subtitle: 'Müşavirler arası soru, cevap ve deneyim paylaşımı.',
         refreshKey: refreshKey,
+        trailing: IconButton.filled(
+          onPressed: () => _createTopic(context),
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          tooltip: 'Yeni konu',
+          icon: const Icon(Icons.add_rounded),
+        ),
         loader: api.forumTopics,
         emptyIcon: Icons.forum_outlined,
         emptyTitle: 'Konu yok',
@@ -899,9 +1181,140 @@ class ForumListPage extends StatelessWidget {
               '${_text(item['author_name'] ?? item['category_name'], '')} · ${dateText(item['created_at'])}',
           value: '${item['post_count'] ?? item['reply_count'] ?? 0}',
           valueSubtitle: 'Yanıt',
+          onTap: () {
+            final topicId = int.tryParse('${item['id']}');
+            if (topicId == null) return;
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ForumTopicPage(
+                  api: api,
+                  topicId: topicId,
+                  title: _text(item['title'], 'Konu'),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
+  }
+
+  Future<void> _createTopic(BuildContext context) async {
+    final title = TextEditingController();
+    final content = TextEditingController();
+    List<Map<String, dynamic>> categories = const [];
+    try {
+      categories = await api.forumCategories();
+    } catch (_) {
+      // Kategori alınamazsa konu açılamaz.
+    }
+    if (!context.mounted) return;
+    if (categories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Forum kategorisi bulunamadı.')),
+      );
+      return;
+    }
+    var categoryId = int.tryParse('${categories.first['id']}');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Yeni Forum Konusu',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                initialValue: categoryId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Kategori',
+                  prefixIcon: Icon(Icons.category_outlined),
+                ),
+                items: categories
+                    .map(
+                      (category) => DropdownMenuItem<int>(
+                        value: int.tryParse('${category['id']}'),
+                        child: Text(
+                          _text(category['name'], 'Kategori'),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setSheetState(() => categoryId = value ?? categoryId),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: title,
+                decoration: const InputDecoration(
+                  labelText: 'Başlık',
+                  prefixIcon: Icon(Icons.title_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: content,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'İçerik',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    if (categoryId == null ||
+                        title.text.trim().isEmpty ||
+                        content.text.trim().isEmpty) {
+                      return;
+                    }
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await api.createForumTopic(
+                        categoryId: categoryId!,
+                        title: title.text.trim(),
+                        content: content.text.trim(),
+                      );
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Konu açıldı')),
+                      );
+                    } catch (error) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error.toString())),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.send_rounded, size: 18),
+                  label: const Text('Konuyu Aç'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    title.dispose();
+    content.dispose();
   }
 }
 
@@ -967,6 +1380,17 @@ class ExtraChargesListPage extends StatelessWidget {
         title: 'Ek Ücretler',
         subtitle: 'Müşavirlik dışındaki hizmet ve masraf kalemleri.',
         refreshKey: refreshKey,
+        trailing: isClient
+            ? null
+            : IconButton.filled(
+                onPressed: () => _createCharge(context),
+                style: IconButton.styleFrom(
+                  backgroundColor: FinkitColors.ink,
+                  foregroundColor: Colors.white,
+                ),
+                tooltip: 'Ek ücret ekle',
+                icon: const Icon(Icons.add_rounded),
+              ),
         loader: isClient ? api.myExtraCharges : api.extraCharges,
         emptyIcon: Icons.request_quote_outlined,
         emptyTitle: 'Ek ücret yok',
@@ -982,6 +1406,168 @@ class ExtraChargesListPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _createCharge(BuildContext context) async {
+    List<Map<String, dynamic>> clients = const [];
+    try {
+      clients = await api.clients();
+    } catch (_) {
+      // Mükellef listesi alınamazsa kayıt yapılamaz.
+    }
+    if (!context.mounted) return;
+    if (clients.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce mükellef eklemelisiniz.')),
+      );
+      return;
+    }
+    var clientId = int.tryParse('${clients.first['user_id']}');
+    final name = TextEditingController();
+    final amount = TextEditingController();
+    final description = TextEditingController();
+    var dueDate = DateTime.now().add(const Duration(days: 15));
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Yeni Ek Ücret',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<int>(
+                  initialValue: clientId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Mükellef',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  items: clients
+                      .map(
+                        (client) => DropdownMenuItem<int>(
+                          value: int.tryParse('${client['user_id']}'),
+                          child: Text(
+                            _text(client['company_title'], 'Mükellef'),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setSheetState(() => clientId = value ?? clientId),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'Ücret Adı',
+                    prefixIcon: Icon(Icons.label_outline_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amount,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Tutar (₺)',
+                    prefixIcon: Icon(Icons.currency_lira_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: sheetContext,
+                      initialDate: dueDate,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) {
+                      setSheetState(() => dueDate = picked);
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Vade Tarihi',
+                      prefixIcon: Icon(Icons.event_outlined),
+                    ),
+                    child: Text(dateText(dueDate)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: description,
+                  decoration: const InputDecoration(
+                    labelText: 'Açıklama (opsiyonel)',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final parsed = double.tryParse(
+                        amount.text.replaceAll(',', '.'),
+                      );
+                      if (clientId == null ||
+                          parsed == null ||
+                          parsed <= 0 ||
+                          name.text.trim().isEmpty) {
+                        return;
+                      }
+                      final messenger = ScaffoldMessenger.of(context);
+                      try {
+                        await api.createExtraCharge(
+                          clientId: clientId!,
+                          name: name.text.trim(),
+                          amount: parsed,
+                          dueDate: dueDate,
+                          description: description.text.trim().isEmpty
+                              ? null
+                              : description.text.trim(),
+                        );
+                        if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Ek ücret kaydedildi')),
+                        );
+                      } catch (error) {
+                        messenger.showSnackBar(
+                          SnackBar(content: Text(error.toString())),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.save_rounded, size: 18),
+                    label: const Text('Ek Ücreti Kaydet'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    name.dispose();
+    amount.dispose();
+    description.dispose();
   }
 }
 
@@ -1096,6 +1682,15 @@ class DanismaListPage extends StatelessWidget {
             ? 'Müşavirlere sorduğunuz sorular ve yanıtları.'
             : 'Yanıt bekleyen danışma soruları.',
         refreshKey: refreshKey,
+        trailing: IconButton.filled(
+          onPressed: () => _createQuestion(context),
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          tooltip: 'Soru sor',
+          icon: const Icon(Icons.help_outline_rounded),
+        ),
         loader: isClient ? api.myDanismaQuestions : api.danismaQuestions,
         emptyIcon: Icons.question_answer_outlined,
         emptyTitle: 'Soru yok',
@@ -1108,9 +1703,137 @@ class DanismaListPage extends StatelessWidget {
           value: '${item['answer_count'] ?? 0}',
           valueSubtitle: 'Yanıt',
           status: item['status']?.toString(),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => DanismaQuestionPage(
+                api: api,
+                question: item,
+                isClient: isClient,
+              ),
+            ),
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _createQuestion(BuildContext context) async {
+    final title = TextEditingController();
+    final content = TextEditingController();
+    List<Map<String, dynamic>> categories = const [];
+    try {
+      categories = await api.danismaCategories();
+    } catch (_) {
+      // Kategoriler alınamazsa soru kategorisiz açılır.
+    }
+    if (!context.mounted) return;
+    var categoryId = categories.isNotEmpty
+        ? int.tryParse('${categories.first['id']}')
+        : null;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Danışma Sorusu',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Sorunuz seçtiğiniz kategoride müşavirlere iletilir.',
+                style: Theme.of(sheetContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 14),
+              if (categories.isNotEmpty)
+                DropdownButtonFormField<int>(
+                  initialValue: categoryId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: categories
+                      .map(
+                        (category) => DropdownMenuItem<int>(
+                          value: int.tryParse('${category['id']}'),
+                          child: Text(
+                            _text(category['name'], 'Kategori'),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setSheetState(() => categoryId = value ?? categoryId),
+                ),
+              if (categories.isNotEmpty) const SizedBox(height: 12),
+              TextField(
+                controller: title,
+                decoration: const InputDecoration(
+                  labelText: 'Başlık',
+                  prefixIcon: Icon(Icons.title_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: content,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: 'Sorunuz',
+                  alignLabelWithHint: true,
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    if (title.text.trim().isEmpty ||
+                        content.text.trim().isEmpty) {
+                      return;
+                    }
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await api.createDanismaQuestion(
+                        title: title.text.trim(),
+                        content: content.text.trim(),
+                        categoryId: categoryId,
+                      );
+                      if (sheetContext.mounted) Navigator.pop(sheetContext);
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Sorunuz gönderildi')),
+                      );
+                    } catch (error) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error.toString())),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.send_rounded, size: 18),
+                  label: const Text('Soruyu Gönder'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    title.dispose();
+    content.dispose();
   }
 }
 
@@ -1211,9 +1934,18 @@ class _ProfilePageState extends State<ProfilePage> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             children: [
-              const PageTitle(
+              PageTitle(
                 title: 'Profilim',
                 subtitle: 'Hesap ve firma bilgileriniz.',
+                trailing: IconButton.filled(
+                  onPressed: () => _edit(user),
+                  style: IconButton.styleFrom(
+                    backgroundColor: FinkitColors.ink,
+                    foregroundColor: Colors.white,
+                  ),
+                  tooltip: 'Bilgileri düzenle',
+                  icon: const Icon(Icons.edit_outlined),
+                ),
               ),
               SurfaceCard(child: Column(children: rows)),
             ],
@@ -1221,6 +1953,100 @@ class _ProfilePageState extends State<ProfilePage> {
         },
       ),
     );
+  }
+
+  /// Ad, telefon ve şehir bilgilerini günceller.
+  Future<void> _edit(Map<String, dynamic> user) async {
+    final fullName = TextEditingController(
+      text: user['full_name']?.toString() ?? '',
+    );
+    final phone = TextEditingController(
+      text: user['phone_number']?.toString() ?? '',
+    );
+    final city = TextEditingController(text: user['city']?.toString() ?? '');
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bilgileri Düzenle',
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: fullName,
+              decoration: const InputDecoration(
+                labelText: 'Ad Soyad',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Telefon',
+                prefixIcon: Icon(Icons.phone_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: city,
+              decoration: const InputDecoration(
+                labelText: 'Şehir',
+                prefixIcon: Icon(Icons.location_city_outlined),
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    await widget.api.updateProfile(
+                      fullName: fullName.text.trim().isEmpty
+                          ? null
+                          : fullName.text.trim(),
+                      phoneNumber: phone.text.trim().isEmpty
+                          ? null
+                          : phone.text.trim(),
+                      city: city.text.trim().isEmpty ? null : city.text.trim(),
+                    );
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Profil güncellendi')),
+                    );
+                    _load();
+                  } catch (error) {
+                    messenger.showSnackBar(
+                      SnackBar(content: Text(error.toString())),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.save_rounded, size: 18),
+                label: const Text('Kaydet'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    fullName.dispose();
+    phone.dispose();
+    city.dispose();
   }
 
   String _humanize(String key) {
