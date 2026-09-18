@@ -278,7 +278,7 @@ class FinkitApi {
     String? email,
     String? city,
     int paymentTermDays = 0,
-  }) => _post('/accounting/partners', {
+  }) => createPartnerRecord({
     'code': code,
     'name': name,
     'partner_type': type,
@@ -289,6 +289,14 @@ class FinkitApi {
     'payment_term_days': paymentTermDays,
     'currency': 'TRY',
   });
+
+  /// Cari kartını adres, yetkili, IBAN ve açılış bakiyesiyle birlikte oluşturur.
+  Future<Map<String, dynamic>> createPartnerRecord(
+    Map<String, dynamic> payload,
+  ) => _post('/accounting/partners', payload);
+
+  Future<Map<String, dynamic>> partner(int partnerId) =>
+      _get('/accounting/partners/$partnerId');
 
   Future<Map<String, dynamic>> createSalesInvoice({
     required int partnerId,

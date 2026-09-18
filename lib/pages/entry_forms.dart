@@ -3,212 +3,19 @@ import 'package:flutter/material.dart';
 import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'partner_form_page.dart';
 
 const _vatRates = <double>[0, 1, 8, 10, 18, 20];
 
-/// Müşteri veya tedarikçi kaydı oluşturur. Kayıt başarılıysa `true` döner.
+/// Cari kartı oluşturma ekranını açar. Kayıt başarılıysa `true` döner.
+///
+/// Ayrıntılı form `partner_form_page.dart` içindedir: cari bilgileri, adres(ler),
+/// e-dönüşüm kutusu, yetkili bilgileri, IBAN ve açılış bakiyesi alanlarını içerir.
 Future<bool> showPartnerForm(
   BuildContext context,
   FinkitApi api, {
   String defaultType = 'CUSTOMER',
-}) async {
-  final formKey = GlobalKey<FormState>();
-  final name = TextEditingController();
-  final code = TextEditingController(text: _suggestCode(defaultType));
-  final taxNumber = TextEditingController();
-  final phone = TextEditingController();
-  final email = TextEditingController();
-  final city = TextEditingController();
-  final termDays = TextEditingController(text: '30');
-  var type = defaultType;
-  var saving = false;
-  String? error;
-
-  final created = await showModalBottomSheet<bool>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    backgroundColor: FinkitColors.canvas,
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (sheetContext, setSheetState) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Yeni Cari Kartı',
-                  style: Theme.of(sheetContext).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Müşteri ve tedarikçi kayıtları aynı cari havuzunda tutulur.',
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: name,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Ünvan / Ad Soyad',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                  validator: (value) => (value ?? '').trim().length < 2
-                      ? 'En az 2 karakter girin'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: type,
-                  decoration: const InputDecoration(
-                    labelText: 'Cari Tipi',
-                    prefixIcon: Icon(Icons.swap_horiz_rounded),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'CUSTOMER', child: Text('Müşteri')),
-                    DropdownMenuItem(
-                      value: 'SUPPLIER',
-                      child: Text('Tedarikçi'),
-                    ),
-                    DropdownMenuItem(value: 'BOTH', child: Text('Her ikisi')),
-                  ],
-                  onChanged: (value) => setSheetState(() {
-                    type = value ?? type;
-                    if (code.text == _suggestCode('CUSTOMER') ||
-                        code.text == _suggestCode('SUPPLIER')) {
-                      code.text = _suggestCode(type);
-                    }
-                  }),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: code,
-                  decoration: const InputDecoration(
-                    labelText: 'Cari Kodu',
-                    prefixIcon: Icon(Icons.tag_rounded),
-                  ),
-                  validator: (value) =>
-                      (value ?? '').trim().isEmpty ? 'Kod gerekli' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: taxNumber,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'VKN / TCKN (opsiyonel)',
-                    prefixIcon: Icon(Icons.numbers_rounded),
-                  ),
-                  validator: (value) {
-                    final text = (value ?? '').trim();
-                    if (text.isEmpty) return null;
-                    if (!RegExp(r'^\d{10,11}$').hasMatch(text)) {
-                      return 'VKN 10, TCKN 11 hane olmalı';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: phone,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Telefon (opsiyonel)',
-                    prefixIcon: Icon(Icons.phone_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: email,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'E-posta (opsiyonel)',
-                    prefixIcon: Icon(Icons.mail_outline_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: city,
-                  decoration: const InputDecoration(
-                    labelText: 'Şehir (opsiyonel)',
-                    prefixIcon: Icon(Icons.location_city_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: termDays,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Ödeme Vadesi (gün)',
-                    prefixIcon: Icon(Icons.event_available_outlined),
-                  ),
-                  validator: (value) {
-                    final parsed = int.tryParse((value ?? '').trim());
-                    if (parsed == null || parsed < 0 || parsed > 3650) {
-                      return '0-3650 arası bir gün girin';
-                    }
-                    return null;
-                  },
-                ),
-                if (error != null) ...[
-                  const SizedBox(height: 12),
-                  _FormError(message: error!),
-                ],
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            if (!formKey.currentState!.validate()) return;
-                            setSheetState(() {
-                              saving = true;
-                              error = null;
-                            });
-                            try {
-                              await api.createPartner(
-                                code: code.text.trim(),
-                                name: name.text.trim(),
-                                type: type,
-                                taxNumber: _nullIfEmpty(taxNumber.text),
-                                phone: _nullIfEmpty(phone.text),
-                                email: _nullIfEmpty(email.text),
-                                city: _nullIfEmpty(city.text),
-                                paymentTermDays:
-                                    int.tryParse(termDays.text.trim()) ?? 0,
-                              );
-                              if (sheetContext.mounted) {
-                                Navigator.pop(sheetContext, true);
-                              }
-                            } catch (exception) {
-                              setSheetState(() {
-                                saving = false;
-                                error = exception.toString();
-                              });
-                            }
-                          },
-                    child: saving
-                        ? const _ButtonSpinner(label: 'Kaydediliyor')
-                        : const Text('Cari Kartını Kaydet'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-  return created ?? false;
-}
+}) => showPartnerCreatePage(context, api, defaultType: defaultType);
 
 /// Çok satırlı satış faturası formu. Kayıt oluşturulduysa `true` döner.
 Future<bool> showSalesInvoiceForm(
@@ -733,15 +540,6 @@ class _ButtonSpinner extends StatelessWidget {
   }
 }
 
-String _suggestCode(String type) {
-  final prefix = switch (type) {
-    'SUPPLIER' => 'T',
-    'BOTH' => 'C',
-    _ => 'M',
-  };
-  final stamp = DateTime.now().millisecondsSinceEpoch % 100000;
-  return '$prefix$stamp';
-}
 
 /// Tüm hızlı kayıt formlarında kullanılan ortak alt sayfa iskeleti.
 class _EntrySheet extends StatefulWidget {

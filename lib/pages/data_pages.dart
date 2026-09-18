@@ -639,7 +639,10 @@ class _CustomersPageState extends State<CustomersPage> {
                       context: context,
                       showDragHandle: true,
                       backgroundColor: FinkitColors.canvas,
-                      builder: (_) => PartnerDetailSheet(partner: partner),
+                      builder: (_) => PartnerDetailSheet(
+                        api: widget.api,
+                        partner: partner,
+                      ),
                     ),
                   ),
                 ),
@@ -1322,39 +1325,168 @@ class InvoiceDetailSheet extends StatelessWidget {
   }
 }
 
-class PartnerDetailSheet extends StatelessWidget {
-  const PartnerDetailSheet({super.key, required this.partner});
+class PartnerDetailSheet extends StatefulWidget {
+  const PartnerDetailSheet({
+    super.key,
+    required this.api,
+    required this.partner,
+  });
 
+  final FinkitApi api;
   final Map<String, dynamic> partner;
+
+  @override
+  State<PartnerDetailSheet> createState() => _PartnerDetailSheetState();
+}
+
+class _PartnerDetailSheetState extends State<PartnerDetailSheet> {
+  Future<Map<String, dynamic>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    final id = int.tryParse('${widget.partner['id']}');
+    _future = id == null
+        ? Future<Map<String, dynamic>>.value(widget.partner)
+        : widget.api.partner(id).catchError((_) => widget.partner);
+  }
+
+  List<Map<String, dynamic>> _rows(Object? value) => (value as List? ?? const [])
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            partner['name']?.toString() ?? 'Cari Detayı',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 18),
-          _DetailLine('Kod', '${partner['code'] ?? '—'}'),
-          _DetailLine('Tip', statusLabel(partner['partner_type']?.toString())),
-          _DetailLine('VKN / TCKN', '${partner['tax_number'] ?? '—'}'),
-          _DetailLine('Telefon', '${partner['phone'] ?? '—'}'),
-          _DetailLine('Bakiye', moneyText(partner['balance'])),
-          const SizedBox(height: 18),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {},
-              icon: const Icon(Icons.call_received_rounded),
-              label: const Text('Tahsilat Al'),
+      child: FutureBuilder<Map<String, dynamic>>(
+        future: _future,
+        builder: (context, snapshot) {
+          final partner = snapshot.data ?? widget.partner;
+          final addresses = _rows(partner['addresses']);
+          final contacts = _rows(partner['contacts']);
+          final bankAccounts = _rows(partner['bank_accounts']);
+          final openingBalances = _rows(partner['opening_balances']);
+          final loading =
+              snapshot.connectionState != ConnectionState.done &&
+              !snapshot.hasData;
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  partner['name']?.toString() ?? 'Cari Detayı',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                if (partner['surname'] != null &&
+                    '${partner['surname']}'.trim().isNotEmpty)
+                  Text(
+                    '${partner['surname']}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                const SizedBox(height: 18),
+                _DetailLine('Kod', '${partner['code'] ?? '—'}'),
+                _DetailLine(
+                  'Tip',
+                  statusLabel(partner['partner_type']?.toString()),
+                ),
+                _DetailLine('VKN / TCKN', '${partner['tax_number'] ?? '—'}'),
+                _DetailLine('Vergi Dairesi', '${partner['tax_office'] ?? '—'}'),
+                _DetailLine('Telefon', '${partner['phone'] ?? '—'}'),
+                _DetailLine('e-Posta', '${partner['email'] ?? '—'}'),
+                _DetailLine('Bakiye', moneyText(partner['balance'])),
+                _DetailLine(
+                  'e-Dönüşüm',
+                  partner['e_transformation_enabled'] == true ? 'Tanımlı' : '—',
+                ),
+                if (addresses.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _DetailSectionTitle('Adresler'),
+                  for (final address in addresses)
+                    _DetailLine(
+                      '${address['title'] ?? 'Adres'}'
+                      '${address['is_default'] == true ? ' (varsayılan)' : ''}',
+                      [
+                        address['address'],
+                        address['district'],
+                        address['city'],
+                      ]
+                          .where((part) => '${part ?? ''}'.trim().isNotEmpty)
+                          .join(', '),
+                    ),
+                ],
+                if (contacts.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _DetailSectionTitle('Yetkili Bilgileri'),
+                  for (final contact in contacts)
+                    _DetailLine(
+                      '${contact['full_name'] ?? 'Yetkili'}',
+                      '${contact['phone'] ?? contact['email'] ?? '—'}',
+                    ),
+                ],
+                if (bankAccounts.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _DetailSectionTitle('IBAN'),
+                  for (final account in bankAccounts)
+                    _DetailLine(
+                      '${account['bank_name'] ?? 'IBAN'}',
+                      '${account['iban'] ?? '—'}',
+                    ),
+                ],
+                if (openingBalances.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  const _DetailSectionTitle('Açılış Bakiyesi'),
+                  for (final balance in openingBalances)
+                    _DetailLine(
+                      balance['direction'] == 'CREDIT' ? 'Alacaklı' : 'Borçlu',
+                      '${moneyText(balance['amount'])} '
+                          '${balance['currency'] ?? ''}',
+                    ),
+                ],
+                if (loading) ...[
+                  const SizedBox(height: 14),
+                  const LinearProgressIndicator(minHeight: 2),
+                ],
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.call_received_rounded),
+                    label: const Text('Tahsilat Al'),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DetailSectionTitle extends StatelessWidget {
+  const _DetailSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: FinkitColors.muted,
+        ),
       ),
     );
   }
