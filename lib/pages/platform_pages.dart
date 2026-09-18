@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../api_client.dart';
 import '../services/app_notifications.dart';
@@ -234,6 +235,169 @@ class DocumentsListPage extends StatelessWidget {
           value: dateText(item['upload_date']),
           valueSubtitle: 'Yükleme',
         ),
+        trailing: IconButton.filled(
+          onPressed: () => _uploadSheet(context),
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          tooltip: 'Belge yükle',
+          icon: const Icon(Icons.upload_file_rounded),
+        ),
+      ),
+    );
+  }
+
+  static const _documentTypes = <String, String>{
+    'KDV1_BEYANNAME': 'KDV Beyannamesi',
+    'KDV1_TAHAKKUK': 'KDV Tahakkuku',
+    'MUHSGK_BEYANNAME': 'Muhtasar Beyanname',
+    'MUHSGK_TAHAKKUK': 'Muhtasar Tahakkuk',
+    'GGECICI_BEYANNAME': 'Geçici Vergi Beyannamesi',
+    'GGECICI_TAHAKKUK': 'Geçici Vergi Tahakkuku',
+    'KURUMLAR_BEYANNAME': 'Kurumlar Beyannamesi',
+    'KURUMLAR_TAHAKKUK': 'Kurumlar Tahakkuku',
+    'BABS': 'BA-BS Formu',
+    'DAMGA': 'Damga Vergisi',
+    'FIRMA_EVRAK': 'Firma Evrakı',
+    'IMZA_SIRKULERI': 'İmza Sirküleri',
+    'VERGI_LEVHASI': 'Vergi Levhası',
+    'TICARET_SICIL': 'Ticaret Sicil',
+    'ANA_SOZLESME': 'Ana Sözleşme',
+    'FAALIYET_BELGESI': 'Faaliyet Belgesi',
+    'DIGER': 'Diğer',
+  };
+
+  /// Belge yükleme: mükellef ve belge türü seçilir, dosya telefondan seçilir.
+  Future<void> _uploadSheet(BuildContext context) async {
+    var selectedClient = clientId;
+    var documentType = _documentTypes.keys.first;
+    List<Map<String, dynamic>> clients = const [];
+    if (!isClient) {
+      try {
+        clients = await api.clients();
+        if (clients.isNotEmpty) {
+          selectedClient ??= int.tryParse('${clients.first['user_id']}');
+        }
+      } catch (_) {
+        // Mükellef listesi alınamazsa yükleme yapılamaz.
+      }
+    }
+    if (!context.mounted) return;
+    if (selectedClient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Önce bir mükellef seçmelisiniz.')),
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Belge Yükle',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'PDF veya görsel seçin; belge mükellefin dosyasına eklenir.',
+                style: Theme.of(sheetContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              if (!isClient && clients.isNotEmpty)
+                DropdownButtonFormField<int>(
+                  initialValue: selectedClient,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Mükellef',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  items: clients
+                      .map(
+                        (client) => DropdownMenuItem<int>(
+                          value: int.tryParse('${client['user_id']}'),
+                          child: Text(
+                            client['company_title']?.toString() ?? 'Mükellef',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setSheetState(() => selectedClient = value),
+                ),
+              if (!isClient && clients.isNotEmpty) const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: documentType,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Belge Türü',
+                  prefixIcon: Icon(Icons.category_outlined),
+                ),
+                items: _documentTypes.entries
+                    .map(
+                      (entry) => DropdownMenuItem<String>(
+                        value: entry.key,
+                        child: Text(
+                          entry.value,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) =>
+                    setSheetState(() => documentType = value ?? documentType),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final picked = await FilePickerPlatform.instance.pickFile(
+                      type: FileType.custom,
+                      allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
+                    );
+                    final path = picked?.path;
+                    if (path == null) return;
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                    try {
+                      await api.uploadDocument(
+                        clientId: selectedClient!,
+                        documentType: documentType,
+                        filePath: path,
+                        fileName: picked?.name,
+                      );
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('Belge yüklendi')),
+                      );
+                    } catch (error) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(error.toString())),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.upload_rounded, size: 18),
+                  label: const Text('Dosya Seç ve Yükle'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -441,8 +605,17 @@ class _CalendarListPageState extends State<CalendarListPage> {
       appBar: AppBar(title: const Text('Takvim ve Hatırlatıcılar')),
       body: ApiListPage(
         title: 'Takvim',
-        subtitle: 'Etkinlikler, beyanname tarihleri ve hatırlatıcılar.',
+        subtitle: 'Etkinlikler ve hatırlatıcılar. Yaklaşan etkinlikler için bildirim planlanır.',
         refreshKey: widget.refreshKey,
+        trailing: IconButton.filled(
+          onPressed: () => _createReminderSheet(context),
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          tooltip: 'Hatırlatıcı ekle',
+          icon: const Icon(Icons.add_alarm_rounded),
+        ),
         loader: () async {
           final events = await widget.api.calendarEvents();
           final rules = await widget.api.reminderRules();
@@ -472,6 +645,152 @@ class _CalendarListPageState extends State<CalendarListPage> {
             status: item['event_type']?.toString(),
           );
         },
+      ),
+    );
+  }
+
+  /// Yeni hatırlatıcı oluşturur ve telefondan bildirim planlar.
+  Future<void> _createReminderSheet(BuildContext context) async {
+    final title = TextEditingController();
+    final description = TextEditingController();
+    var when = DateTime.now().add(const Duration(days: 1));
+    var saving = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: FinkitColors.canvas,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Yeni Hatırlatıcı',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Etkinlik tarihinden bir gün önce bildirim gönderilir.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: title,
+                  decoration: const InputDecoration(
+                    labelText: 'Başlık',
+                    prefixIcon: Icon(Icons.title_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: description,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Açıklama (opsiyonel)',
+                    prefixIcon: Icon(Icons.notes_rounded),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: sheetContext,
+                      initialDate: when,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime(2100),
+                    );
+                    if (date == null) return;
+                    if (!sheetContext.mounted) return;
+                    final time = await showTimePicker(
+                      context: sheetContext,
+                      initialTime: TimeOfDay.fromDateTime(when),
+                    );
+                    setSheetState(() {
+                      when = DateTime(
+                        date.year,
+                        date.month,
+                        date.day,
+                        time?.hour ?? 9,
+                        time?.minute ?? 0,
+                      );
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Tarih ve Saat',
+                      prefixIcon: Icon(Icons.event_outlined),
+                    ),
+                    child: Text(
+                      '${dateText(when)} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final text = title.text.trim();
+                            if (text.isEmpty) return;
+                            setSheetState(() => saving = true);
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await widget.api.createCalendarEvent(
+                                title: text,
+                                description: description.text.trim().isEmpty
+                                    ? null
+                                    : description.text.trim(),
+                                eventDate: when.toIso8601String(),
+                              );
+                              final remindAt = when.subtract(
+                                const Duration(days: 1),
+                              );
+                              if (remindAt.isAfter(DateTime.now())) {
+                                await AppNotifications.instance.scheduleAt(
+                                  remindAt,
+                                  title: 'Hatırlatıcı: $text',
+                                  body:
+                                      '${dateText(when)} tarihinde etkinliğiniz var.',
+                                );
+                              }
+                              if (sheetContext.mounted) {
+                                Navigator.pop(sheetContext);
+                              }
+                              messenger.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Hatırlatıcı kaydedildi'),
+                                ),
+                              );
+                            } catch (error) {
+                              setSheetState(() => saving = false);
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(error.toString())),
+                              );
+                            }
+                          },
+                    icon: const Icon(Icons.alarm_add_rounded, size: 18),
+                    label: Text(
+                      saving ? 'Kaydediliyor…' : 'Hatırlatıcı Kaydet',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
