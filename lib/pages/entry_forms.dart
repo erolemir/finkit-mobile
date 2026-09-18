@@ -2113,3 +2113,183 @@ Future<bool> showReminderRuleForm(BuildContext context, FinkitApi api) async {
   );
   return created ?? false;
 }
+
+/// Müşavir için yeni mükellef kaydı oluşturur. Geçici şifre üretildiyse
+/// çağırana döndürülür; böylece kullanıcıya iletilebilir.
+Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
+  final companyTitle = TextEditingController();
+  final fullName = TextEditingController();
+  final email = TextEditingController();
+  final phone = TextEditingController();
+  final taxNumber = TextEditingController();
+  final tckn = TextEditingController();
+  final monthlyFee = TextEditingController();
+  final dueDay = TextEditingController(text: '1');
+  final password = TextEditingController();
+  var sendEmail = false;
+  String? temporaryPassword;
+
+  final created = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (_) => _EntrySheet(
+      title: 'Yeni Mükellef',
+      subtitle:
+          'Şifre boş bırakılırsa geçici şifre üretilir ve kayıt sonrası gösterilir.',
+      saveLabel: 'Mükellefi Kaydet',
+      onSave: () async {
+        final result = await api.createClient(
+          companyTitle: companyTitle.text.trim(),
+          fullName: fullName.text.trim(),
+          email: email.text.trim(),
+          tckn: tckn.text.trim(),
+          monthlyFee: _number(monthlyFee.text),
+          paymentDueDay: int.tryParse(dueDay.text.trim()) ?? 1,
+          phoneNumber: _nullIfEmpty(phone.text),
+          taxNumber: _nullIfEmpty(taxNumber.text),
+          password: _nullIfEmpty(password.text),
+          sendCredentialsEmail: sendEmail,
+        );
+        temporaryPassword = result['temporary_password']?.toString();
+      },
+      buildFields: (refresh) => [
+        TextFormField(
+          controller: companyTitle,
+          decoration: const InputDecoration(
+            labelText: 'Firma Ünvanı',
+            prefixIcon: Icon(Icons.business_outlined),
+          ),
+          validator: (value) => _requiredText(value, 'Ünvan gerekli'),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: fullName,
+          decoration: const InputDecoration(
+            labelText: 'Yetkili Ad Soyad',
+            prefixIcon: Icon(Icons.person_outline_rounded),
+          ),
+          validator: (value) => _requiredText(value, 'Ad soyad gerekli'),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: email,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'E-posta (giriş)',
+            prefixIcon: Icon(Icons.mail_outline_rounded),
+          ),
+          validator: (value) {
+            final text = (value ?? '').trim();
+            if (!text.contains('@') || text.length < 5) {
+              return 'Geçerli e-posta girin';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: tckn,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'TCKN (11 hane)',
+            prefixIcon: Icon(Icons.badge_outlined),
+          ),
+          validator: (value) {
+            final text = (value ?? '').trim();
+            if (!RegExp(r'^\d{11}$').hasMatch(text)) {
+              return 'TCKN 11 haneli olmalı';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: taxNumber,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Vergi No'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: phone,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: 'Telefon'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: monthlyFee,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Aylık Ücret'),
+                validator: (value) =>
+                    _number(value ?? '') < 0 ? 'Ücret girin' : null,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: dueDay,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Ödeme Günü'),
+                validator: (value) {
+                  final parsed = int.tryParse((value ?? '').trim());
+                  if (parsed == null || parsed < 1 || parsed > 31) {
+                    return '1-31 arası';
+                  }
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: password,
+          decoration: const InputDecoration(
+            labelText: 'Şifre (opsiyonel)',
+            prefixIcon: Icon(Icons.lock_outline_rounded),
+          ),
+        ),
+        const SizedBox(height: 6),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: sendEmail,
+          onChanged: (value) => refresh(() => sendEmail = value),
+          title: const Text('Giriş bilgilerini e-posta ile gönder'),
+        ),
+      ],
+    ),
+  );
+
+  if (created == true && temporaryPassword != null && context.mounted) {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Geçici şifre'),
+        content: Text(
+          'Mükellefe iletmeniz gereken geçici şifre:\n\n$temporaryPassword',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Tamam'),
+          ),
+        ],
+      ),
+    );
+  }
+  return created == true ? temporaryPassword : null;
+}

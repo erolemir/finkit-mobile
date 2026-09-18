@@ -8,6 +8,7 @@ import '../widgets.dart';
 import 'api_list_page.dart';
 import 'chat_page.dart';
 import 'data_pages.dart';
+import 'entry_forms.dart';
 import 'more_pages.dart';
 
 /// Rapor listesi ve detayını birlikte açan sarmalayıcı ekran.
@@ -54,7 +55,7 @@ List<String> _labels(Map<String, dynamic> item) =>
     item.keys.map((key) => key.toString()).toList(growable: false);
 
 /// Müşavir tarafındaki mükellef listesi.
-class ClientsListPage extends StatelessWidget {
+class ClientsListPage extends StatefulWidget {
   const ClientsListPage({
     super.key,
     required this.api,
@@ -65,6 +66,28 @@ class ClientsListPage extends StatelessWidget {
   final int refreshKey;
 
   @override
+  State<ClientsListPage> createState() => _ClientsListPageState();
+}
+
+class _ClientsListPageState extends State<ClientsListPage> {
+  int _localRefresh = 0;
+
+  Future<void> _addClient() async {
+    final password = await showClientForm(context, widget.api);
+    if (!mounted) return;
+    setState(() => _localRefresh++);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          password == null
+              ? 'Mükellef kaydedildi'
+              : 'Mükellef kaydedildi. Geçici şifre gösterildi.',
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: FinkitColors.canvas,
@@ -72,8 +95,17 @@ class ClientsListPage extends StatelessWidget {
       body: ApiListPage(
         title: 'Mükellefler',
         subtitle: 'Cari kartları, ödeme durumu ve iletişim bilgileri.',
-        refreshKey: refreshKey,
-        loader: api.clients,
+        refreshKey: widget.refreshKey + _localRefresh,
+        loader: widget.api.clients,
+        trailing: IconButton.filled(
+          tooltip: 'Yeni mükellef',
+          style: IconButton.styleFrom(
+            backgroundColor: FinkitColors.ink,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _addClient,
+          icon: const Icon(Icons.person_add_alt_1_rounded),
+        ),
         searchHint: 'Ünvan, yetkili veya vergi no ara',
         searchText: (item) =>
             '${item['company_title']} ${item['user']?['full_name']} ${item['tax_no']}',
@@ -178,7 +210,7 @@ class ClientsListPage extends StatelessWidget {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => ChatThreadPage(
-                              api: api,
+                              api: widget.api,
                               otherUserId: userId,
                               title: _text(item['company_title'], 'Mükellef'),
                             ),
@@ -200,8 +232,8 @@ class ClientsListPage extends StatelessWidget {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
                             builder: (_) => CredentialsPage(
-                              api: api,
-                              refreshKey: refreshKey,
+                              api: widget.api,
+                              refreshKey: widget.refreshKey,
                             ),
                           ),
                         );

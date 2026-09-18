@@ -686,6 +686,49 @@ class FinkitApi {
   // ── Cari / mükellef ────────────────────────────────────────
   Future<List<Map<String, dynamic>>> clients() => _list('/clients');
 
+  /// Müşavir yeni mükellef oluşturur; şifre verilmezse geçici şifre üretilir.
+  Future<Map<String, dynamic>> createClient({
+    required String companyTitle,
+    required String fullName,
+    required String email,
+    required String tckn,
+    required double monthlyFee,
+    int paymentDueDay = 1,
+    String? phoneNumber,
+    String? taxNumber,
+    String? password,
+    bool sendCredentialsEmail = false,
+  }) => _post('/clients', {
+    'company_title': companyTitle,
+    'full_name': fullName,
+    'email': email,
+    'tckn': tckn,
+    'monthly_fee': monthlyFee,
+    'payment_due_day': paymentDueDay,
+    'phone_number': ?phoneNumber,
+    'tax_no': ?taxNumber,
+    'password': ?password,
+    'send_credentials_email': sendCredentialsEmail,
+  });
+
+  /// Mükellef kartını günceller (müşavir).
+  Future<Map<String, dynamic>> updateClient(
+    int clientId, {
+    String? companyTitle,
+    String? fullName,
+    String? phoneNumber,
+    String? taxNumber,
+    double? monthlyFee,
+    int? paymentDueDay,
+  }) => _patch('/clients/$clientId', {
+    'company_title': ?companyTitle,
+    'full_name': ?fullName,
+    'phone_number': ?phoneNumber,
+    'tax_no': ?taxNumber,
+    'monthly_fee': ?monthlyFee,
+    'payment_due_day': ?paymentDueDay,
+  });
+
   Future<Map<String, dynamic>> clientProfile() => _get('/clients/me');
 
   Future<Map<String, dynamic>> advisorProfile() => _get('/advisors/me');
