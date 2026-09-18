@@ -79,6 +79,8 @@ class BackgroundSync {
 
   /// Kayıtlı oturumla yeni bildirimleri kontrol eder.
   static Future<void> checkNotifications() async {
+    // Arka plan izolatında izin isteme çağrısı yapılmaz (Activity yok).
+    AppNotifications.runningInBackgroundIsolate = true;
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('finkit_notifications_enabled') ?? true)) return;
 

@@ -41,6 +41,10 @@ class AppNotifications {
   static const String _channelDescription =
       'Ödeme, tahsilat, hatırlatıcı ve belge bildirimleri';
 
+  /// Arka plan izolatında çalışırken izin isteme çağrısı yapılmaz; arka planda
+  /// Activity olmadığı için bu çağrı hata verir (izinler zaten alınmıştır).
+  static bool runningInBackgroundIsolate = false;
+
   /// Uygulama içi dinleyiciler için olay akışı.
   Stream<Map<String, dynamic>> get events => _events.stream;
 
@@ -99,10 +103,12 @@ class AppNotifications {
         importance: Importance.high,
       ),
     );
-    try {
-      await androidPlugin?.requestNotificationsPermission();
-    } catch (_) {
-      // İzin isteme desteklenmiyorsa (eski Android) sessizce devam edilir.
+    if (!runningInBackgroundIsolate) {
+      try {
+        await androidPlugin?.requestNotificationsPermission();
+      } catch (_) {
+        // İzin isteme desteklenmiyorsa (eski Android) sessizce devam edilir.
+      }
     }
   }
 
@@ -157,8 +163,9 @@ class AppNotifications {
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         payload: payload,
       );
-    } catch (_) {
-      // Zamanlama başarısız olursa bildirim sessizce atlanır.
+    } catch (error) {
+      // Zamanlama başarısız olursa bildirim sessizce atlanır; sebep loglanır.
+      debugPrint('Hatırlatıcı planlanamadı: $error');
     }
   }
 
