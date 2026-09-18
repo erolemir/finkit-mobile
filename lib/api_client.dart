@@ -601,6 +601,7 @@ class FinkitApi {
     int monthCount = 1,
     int installmentCount = 0,
     int? extraChargeId,
+    bool storeCard = false,
   }) => _post('/paytr/prepare-payment', {
     'amount': amount,
     'payment_purpose': paymentPurpose,
@@ -608,8 +609,25 @@ class FinkitApi {
     'installment_count': installmentCount,
     'extra_charge_id': ?extraChargeId,
     'non_3d': false,
-    'store_card': false,
+    'store_card': storeCard,
   });
+
+  /// Kayıtlı (tokenize) kartlar; yalnız mükellef rolünde doludur.
+  Future<List<Map<String, dynamic>>> storedCards() async {
+    final body = await _get('/paytr/stored-cards');
+    final cards = body['cards'];
+    if (cards is List) {
+      return cards
+          .whereType<Map>()
+          .map((card) => Map<String, dynamic>.from(card))
+          .toList();
+    }
+    return const [];
+  }
+
+  Future<void> deleteStoredCard(String ctoken) async {
+    await _delete('/paytr/stored-cards/$ctoken');
+  }
 
   Future<Map<String, dynamic>> _get(
     String path, {
@@ -674,6 +692,21 @@ class FinkitApi {
         headers: _headers(json: true),
         body: jsonEncode(body),
       ),
+    );
+    final decoded = _decode(response);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(decoded) ?? 'İşlem tamamlanamadı',
+        response.statusCode,
+      );
+    }
+    return decoded;
+  }
+
+  Future<Map<String, dynamic>> _delete(String path) async {
+    if (demoMode) return const {};
+    final response = await _authorized(
+      () => http.delete(Uri.parse('$baseUrl$path'), headers: _headers()),
     );
     final decoded = _decode(response);
     if (response.statusCode >= 400) {

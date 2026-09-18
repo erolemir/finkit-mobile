@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -32,8 +33,10 @@ class AppNotifications {
   int? _userId;
   bool _initialized = false;
   bool _connected = false;
+  bool _enabled = true;
 
   static const String _channelId = 'finkit_bildirim';
+  static const String _enabledKey = 'finkit_notifications_enabled';
   static const String _channelName = 'Finkit Bildirimleri';
   static const String _channelDescription =
       'Ödeme, tahsilat, hatırlatıcı ve belge bildirimleri';
@@ -43,6 +46,15 @@ class AppNotifications {
 
   bool get isConnected => _connected;
 
+  /// Kullanıcı bildirimleri kapattıysa sistem bildirimi gösterilmez.
+  bool get enabled => _enabled;
+
+  Future<void> setEnabled(bool value) async {
+    _enabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledKey, value);
+  }
+
   /// Bildirim servisine bağlı kullanıcının kimliği (mesaj baloncukları için).
   int? get currentUserId => _userId;
 
@@ -51,6 +63,8 @@ class AppNotifications {
     _initialized = true;
 
     tz_data.initializeTimeZones();
+    final prefs = await SharedPreferences.getInstance();
+    _enabled = prefs.getBool(_enabledKey) ?? true;
     try {
       tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
     } catch (_) {
@@ -111,6 +125,7 @@ class AppNotifications {
     int? id,
   }) async {
     await init();
+    if (!_enabled) return;
     await _plugin.show(
       id: id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000),
       title: title,
@@ -129,6 +144,7 @@ class AppNotifications {
     int? id,
   }) async {
     await init();
+    if (!_enabled) return;
     if (when.isBefore(DateTime.now())) return;
     final scheduled = tz.TZDateTime.from(when, tz.local);
     try {

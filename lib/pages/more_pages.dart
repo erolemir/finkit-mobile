@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api_client.dart';
+import '../services/app_notifications.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'api_list_page.dart';
@@ -1289,9 +1290,14 @@ Future<void> startInAppPayment(
 }) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
+    // Kart bilgileri yalnızca cihazda alınır ve doğrudan PayTR'ye gönderilir.
+    final entry = await showCardEntrySheet(context, amount: 0);
+    if (entry == null || !context.mounted) return;
+
     final prepared = await api.preparePayment(
       paymentPurpose: extraChargeId == null ? 'monthly_fee' : 'extra_charge',
       extraChargeId: extraChargeId,
+      storeCard: entry.storeCard,
     );
     final postUrl = prepared['post_url']?.toString();
     final fields = prepared['fields'];
@@ -1300,19 +1306,12 @@ Future<void> startInAppPayment(
     }
     if (!context.mounted) return;
 
-    // Kart bilgileri yalnızca cihazda alınır ve doğrudan PayTR'ye gönderilir.
-    final card = await showCardEntrySheet(
-      context,
-      amount: double.tryParse('${fields['payment_amount']}') ?? 0,
-    );
-    if (card == null || !context.mounted) return;
-
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => PaymentCheckoutPage(
           title: 'Ödeme',
           postUrl: postUrl,
-          fields: {...Map<String, dynamic>.from(fields), ...card},
+          fields: {...Map<String, dynamic>.from(fields), ...entry.cardFields},
           returnUrl: '/paytr/3d-result',
         ),
       ),
@@ -1330,7 +1329,7 @@ Future<void> startInAppPayment(
 }
 
 /// Kart bilgisi giriş formu. Veriler cihazda kalır, sunucuya gönderilmez.
-Future<Map<String, String>?> showCardEntrySheet(
+Future<CardEntryResult?> showCardEntrySheet(
   BuildContext context, {
   required double amount,
 }) {
@@ -1340,128 +1339,160 @@ Future<Map<String, String>?> showCardEntrySheet(
   final year = TextEditingController();
   final cvv = TextEditingController();
   final formKey = GlobalKey<FormState>();
+  var storeCard = false;
 
-  return showModalBottomSheet<Map<String, String>>(
+  return showModalBottomSheet<CardEntryResult>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: FinkitColors.canvas,
-    builder: (sheetContext) => Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-      ),
-      child: Form(
-        key: formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Kart Bilgileri',
-                style: Theme.of(sheetContext).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                amount > 0
-                    ? 'Ödenecek tutar: ${moneyText(amount)}'
-                    : 'Kart bilgileriniz yalnızca PayTR ile paylaşılır.',
-                style: Theme.of(sheetContext).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: owner,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: 'Kart Üzerindeki İsim',
-                  prefixIcon: Icon(Icons.person_outline_rounded),
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (sheetContext, setSheetState) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          0,
+          20,
+          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+        ),
+        child: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Kart Bilgileri',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
-                validator: (value) => (value ?? '').trim().length < 3
-                    ? 'Kart sahibinin adını girin'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: number,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Kart Numarası',
-                  prefixIcon: Icon(Icons.credit_card_rounded),
+                const SizedBox(height: 4),
+                Text(
+                  amount > 0
+                      ? 'Ödenecek tutar: ${moneyText(amount)}'
+                      : 'Kart bilgileriniz yalnızca PayTR ile paylaşılır.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
                 ),
-                validator: (value) {
-                  final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
-                  return digits.length < 15
-                      ? 'Geçerli kart numarası girin'
-                      : null;
-                },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: month,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Ay (AA)'),
-                      validator: (value) {
-                        final parsed = int.tryParse((value ?? '').trim());
-                        return parsed == null || parsed < 1 || parsed > 12
-                            ? 'AA'
-                            : null;
-                      },
-                    ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: owner,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Kart Üzerindeki İsim',
+                    prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: year,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Yıl (YYYY)',
-                      ),
-                      validator: (value) {
-                        final parsed = int.tryParse((value ?? '').trim());
-                        return parsed == null || parsed < 2024 ? 'YYYY' : null;
-                      },
-                    ),
+                  validator: (value) => (value ?? '').trim().length < 3
+                      ? 'Kart sahibinin adını girin'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: number,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Kart Numarası',
+                    prefixIcon: Icon(Icons.credit_card_rounded),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextFormField(
-                      controller: cvv,
-                      keyboardType: TextInputType.number,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'CVV'),
-                      validator: (value) {
-                        final digits = (value ?? '').trim();
-                        return digits.length < 3 ? 'CVV' : null;
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    if (!formKey.currentState!.validate()) return;
-                    Navigator.pop(sheetContext, {
-                      'cc_owner': owner.text.trim(),
-                      'card_number': number.text.replaceAll(RegExp(r'\D'), ''),
-                      'expiry_month': month.text.trim().padLeft(2, '0'),
-                      'expiry_year': year.text.trim(),
-                      'cvv': cvv.text.trim(),
-                    });
+                  validator: (value) {
+                    final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
+                    return digits.length < 15
+                        ? 'Geçerli kart numarası girin'
+                        : null;
                   },
-                  icon: const Icon(Icons.lock_rounded, size: 18),
-                  label: const Text('Güvenli Ödemeye Devam Et'),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: month,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Ay (AA)'),
+                        validator: (value) {
+                          final parsed = int.tryParse((value ?? '').trim());
+                          return parsed == null || parsed < 1 || parsed > 12
+                              ? 'AA'
+                              : null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        controller: year,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Yıl (YYYY)',
+                        ),
+                        validator: (value) {
+                          final parsed = int.tryParse((value ?? '').trim());
+                          return parsed == null || parsed < 2024
+                              ? 'YYYY'
+                              : null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        controller: cvv,
+                        keyboardType: TextInputType.number,
+                        obscureText: true,
+                        decoration: const InputDecoration(labelText: 'CVV'),
+                        validator: (value) {
+                          final digits = (value ?? '').trim();
+                          return digits.length < 3 ? 'CVV' : null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: storeCard,
+                  onChanged: (value) =>
+                      setSheetState(() => storeCard = value ?? false),
+                  title: const Text(
+                    'Kartımı kaydet',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Sonraki ödemelerde kart bilgisi girmeden ödeyebilirsiniz.',
+                    style: TextStyle(fontSize: 11.5),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (!formKey.currentState!.validate()) return;
+                      Navigator.pop(
+                        sheetContext,
+                        CardEntryResult(
+                          cardFields: {
+                            'cc_owner': owner.text.trim(),
+                            'card_number': number.text.replaceAll(
+                              RegExp(r'\D'),
+                              '',
+                            ),
+                            'expiry_month': month.text.trim().padLeft(2, '0'),
+                            'expiry_year': year.text.trim(),
+                            'cvv': cvv.text.trim(),
+                          },
+                          storeCard: storeCard,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.lock_rounded, size: 18),
+                    label: const Text('Güvenli Ödemeye Devam Et'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1473,6 +1504,328 @@ Future<Map<String, String>?> showCardEntrySheet(
     year.dispose();
     cvv.dispose();
   });
+}
+
+/// Kart formu çıktısı: kart alanları ve kartı kaydet tercihi.
+class CardEntryResult {
+  const CardEntryResult({required this.cardFields, required this.storeCard});
+
+  final Map<String, String> cardFields;
+  final bool storeCard;
+}
+
+/// Kayıtlı (tokenize) kartlar — PayTR kart saklama listesi.
+class StoredCardsPage extends StatefulWidget {
+  const StoredCardsPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
+
+  final FinkitApi api;
+  final int refreshKey;
+
+  @override
+  State<StoredCardsPage> createState() => _StoredCardsPageState();
+}
+
+class _StoredCardsPageState extends State<StoredCardsPage> {
+  List<Map<String, dynamic>> _cards = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final cards = await widget.api.storedCards();
+      if (!mounted) return;
+      setState(() {
+        _cards = cards;
+        _loading = false;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> card) async {
+    final ctoken = card['ctoken']?.toString();
+    if (ctoken == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.api.deleteStoredCard(ctoken);
+      messenger.showSnackBar(const SnackBar(content: Text('Kart silindi')));
+      await _load();
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      appBar: AppBar(title: const Text('Kartlarım')),
+      body: _loading
+          ? const LoadingState()
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              children: [
+                const PageTitle(
+                  title: 'Kartlarım',
+                  subtitle: 'Ödeme sırasında "Kartımı kaydet" derseniz kartınız burada listelenir.',
+                ),
+                if (_error != null)
+                  _InlineError(message: _error!, onRetry: _load)
+                else if (_cards.isEmpty)
+                  const EmptyState(
+                    icon: Icons.credit_card_outlined,
+                    title: 'Kayıtlı kart yok',
+                    description: 'Ödeme yaparken kartı kaydetmeyi seçtiğinizde burada görünür.',
+                  )
+                else
+                  ..._cards.map((card) {
+                    final masked =
+                        card['masked_number']?.toString() ??
+                        card['card_number']?.toString() ??
+                        (card['last_4'] != null
+                            ? '**** **** **** ${card['last_4']}'
+                            : 'Kayıtlı kart');
+                    final bank =
+                        card['card_bank']?.toString() ??
+                        card['bank_name']?.toString() ??
+                        card['card_type']?.toString() ??
+                        '';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: DataRowCard(
+                        icon: Icons.credit_card_rounded,
+                        title: masked,
+                        subtitle: bank,
+                        value: 'Sil',
+                        valueSubtitle: '',
+                        onTap: () => _delete(card),
+                      ),
+                    );
+                  }),
+              ],
+            ),
+    );
+  }
+}
+
+/// Uygulama ayarları: bildirim tercihi, sunucu bilgisi ve oturum işlemleri.
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key, required this.api, required this.onLogout});
+
+  final FinkitApi api;
+  final VoidCallback onLogout;
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  bool _notifications = AppNotifications.instance.enabled;
+  Map<String, dynamic>? _status;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatus();
+  }
+
+  Future<void> _loadStatus() async {
+    try {
+      final status = await widget.api.systemStatus();
+      if (mounted) setState(() => _status = status);
+    } catch (_) {
+      // Sistem durumu alınamazsa ayarlar yine gösterilir.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final serverUrl = widget.api.baseUrl
+        .replaceAll(RegExp(r'/api$'), '')
+        .replaceFirst(RegExp(r'^https?://'), '');
+    return Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      appBar: AppBar(title: const Text('Ayarlar')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: [
+          const PageTitle(
+            title: 'Ayarlar',
+            subtitle: 'Bildirimler, sunucu bilgisi ve oturum.',
+          ),
+          SurfaceCard(
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _notifications,
+                    onChanged: (value) async {
+                      await AppNotifications.instance.setEnabled(value);
+                      if (mounted) setState(() => _notifications = value);
+                    },
+                    title: const Text(
+                      'Bildirimler',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Tahsilat, fatura ve hatırlatıcı bildirimleri',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                  const Divider(height: 1, color: FinkitColors.line),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.dns_outlined),
+                    title: const Text(
+                      'Sunucu',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      serverUrl,
+                      style: const TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                  const Divider(height: 1, color: FinkitColors.line),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.monitor_heart_outlined),
+                    title: const Text(
+                      'Sistem Durumu',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _status == null
+                          ? 'Kontrol ediliyor…'
+                          : (_status!['maintenance_mode'] == true
+                                ? 'Bakım modunda'
+                                : 'Çalışıyor'),
+                      style: const TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SurfaceCard(
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.public_rounded),
+                    title: const Text(
+                      'Web panelini aç',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Ödeme ve web’e özel işlemler için tarayıcıda açılır',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                    trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                    onTap: () => openWebPanel(context, widget.api),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SurfaceCard(
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.info_outline_rounded),
+                    title: Text(
+                      'Finkit Mobil',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Sürüm 1.3.0 · Android',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onLogout,
+                      icon: const Icon(Icons.logout_rounded, size: 18),
+                      label: const Text('Çıkış Yap'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      child: Column(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: FinkitColors.muted),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: FinkitColors.muted, fontSize: 12.5),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton(onPressed: onRetry, child: const Text('Tekrar dene')),
+        ],
+      ),
+    );
+  }
 }
 
 /// Ödeme alternatifi: web panelini tarayıcıda açar.

@@ -75,6 +75,7 @@ void main() {
       'Not Defteri',
       'Takvim ve Hatırlatıcılar',
       'Bildirimler',
+      'Ayarlar',
     ]) {
       await openMenuEntry(tester, page);
       expect(

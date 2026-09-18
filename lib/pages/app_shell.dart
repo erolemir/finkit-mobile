@@ -429,6 +429,14 @@ class _FinkitShellState extends State<FinkitShell> {
           icon: Icons.sticky_note_2_outlined,
           builder: (_) => const NotesPage(),
         ),
+        if (_isClient)
+          MenuEntry(
+            title: 'Kartlarım',
+            subtitle: 'Kayıtlı ödeme kartları',
+            icon: Icons.credit_card_outlined,
+            builder: (_) =>
+                StoredCardsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
         if (!_isClient)
           MenuEntry(
             title: 'Giriş Bilgileri',
@@ -460,6 +468,13 @@ class _FinkitShellState extends State<FinkitShell> {
           badge: _unreadNotifications,
           builder: (_) =>
               NotificationCenterPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Ayarlar',
+          subtitle: 'Bildirim tercihi ve sunucu bilgisi',
+          icon: Icons.settings_outlined,
+          builder: (_) =>
+              SettingsPage(api: widget.api, onLogout: () => widget.onLogout()),
         ),
       ],
     );
