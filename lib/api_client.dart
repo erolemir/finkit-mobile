@@ -765,6 +765,35 @@ class FinkitApi {
   Future<List<Map<String, dynamic>>> reminderRules() =>
       _list('/reminder-rules');
 
+  Future<Map<String, dynamic>> createReminderRule({
+    required String channel,
+    required int daysBefore,
+    String? message,
+  }) => _post('/reminder-rules', {
+    'channel': channel,
+    'days_before': daysBefore,
+    'message': ?message,
+  });
+
+  Future<Map<String, dynamic>> updateReminderRule(
+    int ruleId, {
+    int? daysBefore,
+    String? message,
+    bool? isActive,
+  }) => _patch('/reminder-rules/$ruleId', {
+    'days_before': ?daysBefore,
+    'message': ?message,
+    'is_active': ?isActive,
+  });
+
+  Future<void> deleteReminderRule(int ruleId) async {
+    await _delete('/reminder-rules/$ruleId');
+  }
+
+  /// Bekleyen ödeme hatırlatmalarını hemen gönderir (müşavir aracı).
+  Future<Map<String, dynamic>> runReminders() =>
+      _post('/rules/run-reminders', const {});
+
   Future<Map<String, dynamic>> createCalendarEvent({
     required String title,
     required String eventDate,

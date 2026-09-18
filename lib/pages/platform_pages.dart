@@ -6,6 +6,7 @@ import '../services/app_notifications.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'api_list_page.dart';
+import 'chat_page.dart';
 import 'data_pages.dart';
 import 'more_pages.dart';
 
@@ -164,6 +165,52 @@ class ClientsListPage extends StatelessWidget {
                     _InfoRow('Müşavir Kodu', _text(item['advisor_unique_id'])),
                   ],
                 ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        final userId = int.tryParse('${item['user_id']}');
+                        if (userId == null) return;
+                        Navigator.pop(sheetContext);
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ChatThreadPage(
+                              api: api,
+                              otherUserId: userId,
+                              title: _text(item['company_title'], 'Mükellef'),
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 18,
+                      ),
+                      label: const Text('Sohbet'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(sheetContext);
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => CredentialsPage(
+                              api: api,
+                              refreshKey: refreshKey,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.vpn_key_outlined, size: 18),
+                      label: const Text('Giriş Bilgileri'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -865,10 +912,10 @@ class _CalendarListPageState extends State<CalendarListPage> {
                   style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'Etkinlik tarihinden bir gün önce bildirim gönderilir.',
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
+              Text(
+                'Etkinlikten bir gün önce ve 15 dakika önce bildirim gönderilir.',
+                style: Theme.of(sheetContext).textTheme.bodySmall,
+              ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: title,
@@ -941,15 +988,39 @@ class _CalendarListPageState extends State<CalendarListPage> {
                                     : description.text.trim(),
                                 eventDate: when.toIso8601String(),
                               );
-                              final remindAt = when.subtract(
+                              // Hem bir gün önceden hem de etkinlikten 15 dakika
+                              // önce bildirim planlanır; kısa vadeli hatırlatıcılar
+                              // da çalışsın diye ikinci bildirim eklenir.
+                              final now = DateTime.now();
+                              final dayBefore = when.subtract(
                                 const Duration(days: 1),
                               );
-                              if (remindAt.isAfter(DateTime.now())) {
+                              if (dayBefore.isAfter(now)) {
                                 await AppNotifications.instance.scheduleAt(
-                                  remindAt,
+                                  dayBefore,
                                   title: 'Hatırlatıcı: $text',
                                   body:
-                                      '${dateText(when)} tarihinde etkinliğiniz var.',
+                                      'Yarın ${dateText(when)} tarihinde etkinliğiniz var.',
+                                  id:
+                                      when.millisecondsSinceEpoch.remainder(
+                                        100000,
+                                      ),
+                                );
+                              }
+                              final fifteenBefore = when.subtract(
+                                const Duration(minutes: 15),
+                              );
+                              if (fifteenBefore.isAfter(now)) {
+                                await AppNotifications.instance.scheduleAt(
+                                  fifteenBefore,
+                                  title: 'Hatırlatıcı: $text',
+                                  body:
+                                      '15 dakika sonra: ${dateText(when)} ${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}',
+                                  id:
+                                      when.millisecondsSinceEpoch.remainder(
+                                        100000,
+                                      ) +
+                                      1,
                                 );
                               }
                               if (sheetContext.mounted) {

@@ -117,7 +117,11 @@ class _FinkitShellState extends State<FinkitShell> {
       setState(() {
         _userName = 'Demo Kullanıcı';
         _companyName = '';
-        _role = 'ADVISOR';
+        // Demo modunda rol, testlerin mükellef menüsünü de açabilmesi için
+        // api üzerinden ayarlanabilir.
+        _role = widget.api.role?.toUpperCase() == 'CLIENT'
+            ? 'CLIENT'
+            : 'ADVISOR';
       });
       return;
     }
@@ -290,39 +294,30 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Satış Raporu',
           subtitle: 'Ciro, KDV, iade ve müşteri kırılımı',
           icon: Icons.trending_up_rounded,
-          builder: (_) => _wrapPage(
-            'Satış Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'sales',
-              title: 'Satış Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'sales',
+            title: 'Satış Raporu',
           ),
         ),
         MenuEntry(
           title: 'Tahsilat Raporu',
           subtitle: 'Tahsil edilen, bekleyen ve gecikmiş',
           icon: Icons.call_received_rounded,
-          builder: (_) => _wrapPage(
-            'Tahsilat Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'collections',
-              title: 'Tahsilat Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'collections',
+            title: 'Tahsilat Raporu',
           ),
         ),
         MenuEntry(
           title: 'Gelir-Gider Raporu',
           subtitle: 'Tahakkuk ve nakit görünümü',
           icon: Icons.auto_graph_rounded,
-          builder: (_) => _wrapPage(
-            'Gelir-Gider Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'income-expense',
-              title: 'Gelir-Gider Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'income-expense',
+            title: 'Gelir-Gider Raporu',
           ),
         ),
       ],
@@ -385,39 +380,39 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Gider Raporu',
           subtitle: 'Kategori, tedarikçi ve ödeme durumu',
           icon: Icons.summarize_outlined,
-          builder: (_) => _wrapPage(
-            'Gider Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'expenses',
-              title: 'Gider Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'expenses',
+            title: 'Gider Raporu',
           ),
         ),
         MenuEntry(
           title: 'Ödemeler Raporu',
           subtitle: 'Tedarikçi, personel ve vergi ödemeleri',
           icon: Icons.payments_outlined,
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'payments',
+            title: 'Ödemeler Raporu',
+          ),
+        ),
+        MenuEntry(
+          title: 'Tedarikçi Ödemeleri',
+          subtitle: 'Ödeme kaydı oluştur ve faturaya dağıt',
+          icon: Icons.price_check_rounded,
           builder: (_) => _wrapPage(
-            'Ödemeler Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'payments',
-              title: 'Ödemeler Raporu',
-            ),
+            'Tedarikçi Ödemeleri',
+            SupplierPaymentsPage(api: widget.api, refreshKey: _refreshKey),
           ),
         ),
         MenuEntry(
           title: 'KDV Raporu',
           subtitle: 'KDV1 taslağı, tevkifat ve devreden',
           icon: Icons.percent_rounded,
-          builder: (_) => _wrapPage(
-            'KDV Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'vat',
-              title: 'KDV Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'vat',
+            title: 'KDV Raporu',
           ),
         ),
       ],
@@ -458,26 +453,20 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Kasa Raporu',
           subtitle: 'Hesap bazlı açılış, giriş, çıkış, kapanış',
           icon: Icons.account_balance_wallet_outlined,
-          builder: (_) => _wrapPage(
-            'Kasa Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'cash-register',
-              title: 'Kasa Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'cash-register',
+            title: 'Kasa Raporu',
           ),
         ),
         MenuEntry(
           title: 'Nakit Akış Raporu',
           subtitle: 'Giriş-çıkış ve vade projeksiyonu',
           icon: Icons.waterfall_chart_rounded,
-          builder: (_) => _wrapPage(
-            'Nakit Akış Raporu',
-            ReportDetailPage(
-              api: widget.api,
-              report: 'cash-flow',
-              title: 'Nakit Akış Raporu',
-            ),
+          builder: (_) => ReportDetailPage(
+            api: widget.api,
+            report: 'cash-flow',
+            title: 'Nakit Akış Raporu',
           ),
         ),
       ],
@@ -493,14 +482,48 @@ class _FinkitShellState extends State<FinkitShell> {
           builder: (_) =>
               DashboardReportsPage(api: widget.api, refreshKey: _refreshKey),
         ),
-        if (!_isClient)
-          MenuEntry(
-            title: 'Harici Mükellefler',
-            subtitle: 'Portala girmeyen takip mükellefleri',
-            icon: Icons.folder_shared_outlined,
-            builder: (_) =>
-                ExternalClientsPage(api: widget.api, refreshKey: _refreshKey),
-          ),
+      ],
+    );
+
+    // Müşavir araçları: mükellef listesi, kurum giriş bilgileri ve takip kayıtları.
+    final advisorTools = MenuSection(
+      title: 'Müşavir Araçları',
+      entries: [
+        MenuEntry(
+          title: 'Mükellefler',
+          subtitle: 'Mükellef kartları, ödeme durumu ve iletişim',
+          icon: Icons.badge_outlined,
+          builder: (_) =>
+              ClientsListPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Hızlı Giriş Aracı',
+          subtitle: 'Mükellef kurum şifreleri kasası',
+          icon: Icons.vpn_key_outlined,
+          builder: (_) =>
+              CredentialsPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Harici Mükellefler',
+          subtitle: 'Portala girmeyen takip mükellefleri',
+          icon: Icons.folder_shared_outlined,
+          builder: (_) =>
+              ExternalClientsPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Şablonlar',
+          subtitle: 'Hazır mesaj şablonları',
+          icon: Icons.article_outlined,
+          builder: (_) =>
+              TemplatesListPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Hatırlatma Kuralları',
+          subtitle: 'Vadesi yaklaşan ödemeler için otomatik hatırlatma',
+          icon: Icons.notifications_active_outlined,
+          builder: (_) =>
+              ReminderRulesPage(api: widget.api, refreshKey: _refreshKey),
+        ),
       ],
     );
 
@@ -649,14 +672,6 @@ class _FinkitShellState extends State<FinkitShell> {
             isClient: _isClient,
           ),
         ),
-        if (!_isClient)
-          MenuEntry(
-            title: 'Şablonlar',
-            subtitle: 'Hazır mesaj şablonları',
-            icon: Icons.article_outlined,
-            builder: (_) =>
-                TemplatesListPage(api: widget.api, refreshKey: _refreshKey),
-          ),
         MenuEntry(
           title: 'Hesaplama Yap',
           subtitle: 'KDV, stopaj ve maliyet hesapları',
@@ -676,14 +691,6 @@ class _FinkitShellState extends State<FinkitShell> {
             icon: Icons.credit_card_outlined,
             builder: (_) =>
                 StoredCardsPage(api: widget.api, refreshKey: _refreshKey),
-          ),
-        if (!_isClient)
-          MenuEntry(
-            title: 'Giriş Bilgileri',
-            subtitle: 'Mükellef kurum şifreleri kasası',
-            icon: Icons.vpn_key_outlined,
-            builder: (_) =>
-                CredentialsPage(api: widget.api, refreshKey: _refreshKey),
           ),
       ],
     );
@@ -724,6 +731,7 @@ class _FinkitShellState extends State<FinkitShell> {
       expenseSection,
       cash,
       reports,
+      if (!_isClient) advisorTools,
       documents,
       communication,
       planning,

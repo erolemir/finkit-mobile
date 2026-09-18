@@ -83,13 +83,20 @@ class BackgroundSync {
     if (!(prefs.getBool('finkit_notifications_enabled') ?? true)) return;
 
     final api = await FinkitApi.fromStoredSession();
-    if (api == null) return;
+    if (api == null) {
+      debugPrint('Arka plan: kayıtlı oturum bulunamadı');
+      return;
+    }
 
     final items = await api.notifications(pageSize: 5);
-    if (items.isEmpty) return;
+    if (items.isEmpty) {
+      debugPrint('Arka plan: bildirim listesi boş');
+      return;
+    }
 
     final newestId = int.tryParse('${items.first['id']}') ?? 0;
     final lastSeen = prefs.getInt(lastSeenKey) ?? 0;
+    debugPrint('Arka plan: en yeni=$newestId, son görülen=$lastSeen');
     if (lastSeen == 0 || newestId <= lastSeen) {
       if (lastSeen == 0) await prefs.setInt(lastSeenKey, newestId);
       return;
@@ -110,6 +117,7 @@ class BackgroundSync {
         payload: 'notification:${item['id']}',
       );
     }
+    debugPrint('Arka plan: ${fresh.length} yeni bildirim gösterildi');
     await prefs.setInt(lastSeenKey, newestId);
   }
 }

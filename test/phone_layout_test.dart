@@ -41,10 +41,53 @@ void main() {
     for (final page in [
       'Müşteriler',
       'Ürün ve Hizmetler',
+      'Depolar ve Stok',
+      'Depo Tanımları',
       'Teklifler',
+      'Satış Faturaları',
+      'İade Faturaları',
+      'Tahsilatlar',
+      'Satış Raporu',
+      'Tahsilat Raporu',
+      'Gelir-Gider Raporu',
+      'Gider Listesi',
       'Gelen Faturalar',
+      'Tedarikçiler',
       'Çalışanlar',
+      'Bordro ve Puantaj',
+      'Gider Raporu',
+      'Ödemeler Raporu',
+      'KDV Raporu',
+      'Kasa ve Bankalar',
+      'Kasa Hareketleri',
+      'Çekler ve Senetler',
+      'Kasa Raporu',
+      'Nakit Akış Raporu',
       'Tüm Raporlar',
+      'Mükellefler',
+      'Hızlı Giriş Aracı',
+      'Harici Mükellefler',
+      'Şablonlar',
+      'Hatırlatma Kuralları',
+      'Belgeler',
+      'E-Fatura',
+      'E-Belgeler',
+      'Duyurular',
+      'Sohbet',
+      'Mail Gönder',
+      'Forum',
+      'Mükellef İstekleri',
+      'Danışma',
+      'Destek',
+      'Takvim ve Hatırlatıcılar',
+      'Ödemeler',
+      'Ek Ücretler',
+      'Taksitler',
+      'Hesaplama Yap',
+      'Not Defteri',
+      'Profilim',
+      'Bildirimler',
+      'Ayarlar',
     ]) {
       await tester.dragUntilVisible(
         find.text(page),
@@ -55,7 +98,7 @@ void main() {
       await tester.tap(find.text(page));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: '$page açılmalı');
-      await tester.pageBack();
+      await tester.tap(find.byType(BackButton).first);
       await tester.pumpAndSettle();
     }
   });

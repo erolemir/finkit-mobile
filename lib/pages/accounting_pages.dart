@@ -1056,3 +1056,249 @@ String _trimNumber(dynamic value) {
   if (parsed == parsed.roundToDouble()) return parsed.toStringAsFixed(0);
   return parsed.toStringAsFixed(2);
 }
+
+/// Ödeme hatırlatma kuralları (SMS / e-posta) ve manuel gönderim.
+class ReminderRulesPage extends StatefulWidget {
+  const ReminderRulesPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
+
+  final FinkitApi api;
+  final int refreshKey;
+
+  @override
+  State<ReminderRulesPage> createState() => _ReminderRulesPageState();
+}
+
+class _ReminderRulesPageState extends State<ReminderRulesPage> {
+  Future<List<Map<String, dynamic>>>? _future;
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReminderRulesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshKey != widget.refreshKey) _load();
+  }
+
+  void _load() {
+    setState(() {
+      _future = widget.api.reminderRules();
+    });
+  }
+
+  Future<void> _runReminders() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _running = true);
+    try {
+      await widget.api.runReminders();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Hatırlatmalar gönderildi')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  Future<void> _createRule() async {
+    final created = await showReminderRuleForm(context, widget.api);
+    if (created && mounted) _load();
+  }
+
+  Future<void> _toggle(Map<String, dynamic> rule, bool value) async {
+    try {
+      await widget.api.updateReminderRule(
+        int.parse('${rule['id']}'),
+        isActive: value,
+      );
+      _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> rule) async {
+    try {
+      await widget.api.deleteReminderRule(int.parse('${rule['id']}'));
+      _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      appBar: AppBar(title: const Text('Hatırlatma Kuralları')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createRule,
+        backgroundColor: FinkitColors.ink,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Kural Ekle'),
+      ),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const LoadingState();
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  snapshot.error.toString(),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          final rules = snapshot.data ?? const <Map<String, dynamic>>[];
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+            children: [
+              const PageTitle(
+                title: 'Hatırlatma Kuralları',
+                subtitle:
+                    'Vadesi yaklaşan ödemeler için otomatik SMS veya e-posta hatırlatması.',
+              ),
+              SurfaceCard(
+                dark: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Hatırlatmaları elle çalıştır',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Kurallara uyan mükelleflere hemen hatırlatma gönderilir.',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 11.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _running ? null : _runReminders,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: FinkitColors.ink,
+                        ),
+                        icon: _running
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.send_rounded, size: 18),
+                        label: Text(
+                          _running ? 'Gönderiliyor…' : 'Şimdi Gönder',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SectionHeader(title: 'Kurallar'),
+              if (rules.isEmpty)
+                const EmptyState(
+                  icon: Icons.notifications_active_outlined,
+                  title: 'Kural yok',
+                  description: 'Ödeme hatırlatması için kural ekleyin.',
+                )
+              else
+                for (final rule in rules)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: SurfaceCard(
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F2F5),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Icon(
+                              rule['channel'] == 'sms'
+                                  ? Icons.sms_outlined
+                                  : Icons.mail_outline_rounded,
+                              size: 20,
+                              color: FinkitColors.ink,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${rule['channel'] == 'sms' ? 'SMS' : 'E-posta'} · ${rule['days_before']} gün önce',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  rule['message']?.toString() ??
+                                      'Varsayılan hatırlatma metni',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: FinkitColors.muted,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch.adaptive(
+                            value: rule['is_active'] != false,
+                            onChanged: (value) => _toggle(rule, value),
+                          ),
+                          IconButton(
+                            tooltip: 'Sil',
+                            onPressed: () => _delete(rule),
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              color: FinkitColors.muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}

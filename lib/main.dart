@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'api_client.dart';
 import 'pages/app_shell.dart';
 import 'pages/login_page.dart';
 import 'services/app_notifications.dart';
 import 'services/background_sync.dart';
+import 'services/system_ui.dart';
 import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Telefonun kendi alt gezinme çubuğunu gizle; durum çubuğu görünür kalır.
-  await SystemChrome.setEnabledSystemUIMode(
-    SystemUiMode.manual,
-    overlays: [SystemUiOverlay.top],
-  );
+  await SystemUi.keepNavigationBarHidden();
   // Bildirim kanalı ve izinleri uygulama açılışında hazırlanır.
   await AppNotifications.instance.init();
   runApp(const FinkitMobileApp());
@@ -27,7 +24,8 @@ class FinkitMobileApp extends StatefulWidget {
   State<FinkitMobileApp> createState() => _FinkitMobileAppState();
 }
 
-class _FinkitMobileAppState extends State<FinkitMobileApp> {
+class _FinkitMobileAppState extends State<FinkitMobileApp>
+    with WidgetsBindingObserver {
   final FinkitApi _api = FinkitApi();
   bool _ready = false;
   bool _authenticated = false;
@@ -35,11 +33,32 @@ class _FinkitMobileAppState extends State<FinkitMobileApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Jeton yenilenemezse kullanıcı giriş ekranına döner.
     _api.onSessionExpired = () {
       if (mounted) setState(() => _authenticated = false);
     };
     _restore();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Uygulama öne geldiğinde alt gezinme çubuğu yeniden gizlenir.
+    if (state == AppLifecycleState.resumed) {
+      SystemUi.keepNavigationBarHidden();
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // Klavye açılıp kapandığında çubuk geri gelirse tekrar gizlenir.
+    SystemUi.keepNavigationBarHidden();
   }
 
   Future<void> _restore() async {

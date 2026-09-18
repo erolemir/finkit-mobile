@@ -2047,3 +2047,69 @@ String? _nullIfEmpty(String value) {
   final trimmed = value.trim();
   return trimmed.isEmpty ? null : trimmed;
 }
+
+/// Ödeme hatırlatma kuralı oluşturur (SMS veya e-posta).
+Future<bool> showReminderRuleForm(BuildContext context, FinkitApi api) async {
+  final daysBefore = TextEditingController(text: '3');
+  final message = TextEditingController();
+  var channel = 'sms';
+
+  final created = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (_) => _EntrySheet(
+      title: 'Yeni Hatırlatma Kuralı',
+      subtitle: 'Vade tarihinden belirtilen gün önce hatırlatma gönderilir.',
+      saveLabel: 'Kuralı Kaydet',
+      onSave: () async {
+        await api.createReminderRule(
+          channel: channel,
+          daysBefore: int.tryParse(daysBefore.text.trim()) ?? 3,
+          message: _nullIfEmpty(message.text),
+        );
+      },
+      buildFields: (refresh) => [
+        DropdownButtonFormField<String>(
+          initialValue: channel,
+          decoration: const InputDecoration(
+            labelText: 'Kanal',
+            prefixIcon: Icon(Icons.send_outlined),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'sms', child: Text('SMS')),
+            DropdownMenuItem(value: 'email', child: Text('E-posta')),
+          ],
+          onChanged: (value) => refresh(() => channel = value ?? channel),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: daysBefore,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Vadeden kaç gün önce',
+            prefixIcon: Icon(Icons.event_available_outlined),
+          ),
+          validator: (value) {
+            final parsed = int.tryParse((value ?? '').trim());
+            if (parsed == null || parsed < 0 || parsed > 90) {
+              return '0-90 arası bir gün girin';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: message,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Mesaj (opsiyonel)',
+            prefixIcon: Icon(Icons.notes_rounded),
+          ),
+        ),
+      ],
+    ),
+  );
+  return created ?? false;
+}

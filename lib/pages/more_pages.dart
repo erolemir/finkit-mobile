@@ -2,12 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api_client.dart';
 import '../services/app_notifications.dart';
+import '../services/background_sync.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'api_list_page.dart';
@@ -1639,11 +1641,28 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   bool _notifications = AppNotifications.instance.enabled;
   Map<String, dynamic>? _status;
+  String _versionLabel = 'Sürüm bilgisi alınıyor…';
 
   @override
   void initState() {
     super.initState();
     _loadStatus();
+    _loadVersion();
+  }
+
+  /// Sürüm bilgisi paketten okunur; elle güncellenmesi gerekmez.
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _versionLabel =
+            'Sürüm ${info.version} (${info.buildNumber}) · ${info.appName}';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _versionLabel = 'Sürüm bilgisi alınamadı');
+    }
   }
 
   Future<void> _loadStatus() async {
@@ -1730,6 +1749,36 @@ class _SettingsPageState extends State<SettingsPage> {
                       style: const TextStyle(fontSize: 11.5),
                     ),
                   ),
+                  const Divider(height: 1, color: FinkitColors.line),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.notifications_active_outlined),
+                    title: const Text(
+                      'Bildirimleri test et',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Uygulama kapalıyken de çalışan arka plan kontrolü',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                    onTap: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      await BackgroundSync.runOnce(
+                        delay: const Duration(seconds: 15),
+                      );
+                      if (!mounted) return;
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            '15 saniye içinde arka plan bildirim kontrolü yapılacak.',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -1768,10 +1817,10 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const ListTile(
+                  ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.info_outline_rounded),
-                    title: Text(
+                    leading: const Icon(Icons.info_outline_rounded),
+                    title: const Text(
                       'Finkit Mobil',
                       style: TextStyle(
                         fontSize: 14,
@@ -1779,8 +1828,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                     subtitle: Text(
-                      'Sürüm 1.3.0 · Android',
-                      style: TextStyle(fontSize: 11.5),
+                      _versionLabel,
+                      style: const TextStyle(fontSize: 11.5),
                     ),
                   ),
                   const SizedBox(height: 6),
