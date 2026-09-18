@@ -18,6 +18,7 @@ class ApiListPage extends StatefulWidget {
     this.emptyDescription = 'Bu bölümde gösterilecek kayıt yok.',
     this.summaryBuilder,
     this.trailing,
+    this.trailingActions,
     this.searchHint,
     this.searchText,
   });
@@ -33,6 +34,7 @@ class ApiListPage extends StatefulWidget {
   final String emptyDescription;
   final Widget Function(List<Map<String, dynamic>> items)? summaryBuilder;
   final Widget? trailing;
+  final List<Widget>? trailingActions;
   final String? searchHint;
   final String Function(Map<String, dynamic> item)? searchText;
 
@@ -102,6 +104,11 @@ class _ApiListPageState extends State<ApiListPage> {
               ),
               if (widget.summaryBuilder != null) ...[
                 widget.summaryBuilder!(all),
+                const SizedBox(height: 14),
+              ],
+              if (widget.trailingActions != null &&
+                  widget.trailingActions!.isNotEmpty) ...[
+                Row(children: widget.trailingActions!),
                 const SizedBox(height: 14),
               ],
               if (widget.searchHint != null) ...[

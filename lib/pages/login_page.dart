@@ -209,9 +209,26 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
                       TextField(
                         controller: _baseUrl,
                         keyboardType: TextInputType.url,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'API Adresi',
-                          prefixIcon: Icon(Icons.cloud_outlined),
+                          prefixIcon: const Icon(Icons.cloud_outlined),
+                          suffixIcon: PopupMenuButton<String>(
+                            tooltip: 'Sunucu seç',
+                            icon: const Icon(Icons.swap_horiz_rounded),
+                            onSelected: (value) => setState(() {
+                              _baseUrl.text = value;
+                            }),
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'https://finkit.com.tr/api',
+                                child: Text('Canlı sunucu (finkit.com.tr)'),
+                              ),
+                              PopupMenuItem(
+                                value: 'https://test.finkit.com.tr/api',
+                                child: Text('Test sunucusu'),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       if (_error != null) ...[

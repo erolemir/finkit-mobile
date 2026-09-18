@@ -38,7 +38,14 @@ void main() {
     await tester.tap(find.text('Menü').last);
     await tester.pumpAndSettle();
 
-    for (final page in ['Cari Hesaplar', 'Personel ve Bordro', 'Raporlar']) {
+    for (final page in [
+      'Müşteriler',
+      'Ürün ve Hizmetler',
+      'Teklifler',
+      'Gelen Faturalar',
+      'Çalışanlar',
+      'Tüm Raporlar',
+    ]) {
       await tester.dragUntilVisible(
         find.text(page),
         find.byType(ListView).first,

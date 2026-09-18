@@ -522,10 +522,17 @@ class _CashPageState extends State<CashPage> {
 }
 
 class CustomersPage extends StatefulWidget {
-  const CustomersPage({super.key, required this.api, required this.refreshKey});
+  const CustomersPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+    this.partnerType,
+  });
 
   final FinkitApi api;
   final int refreshKey;
+  /// 'CUSTOMER' veya 'SUPPLIER'; boş bırakılırsa tüm cari kartlar listelenir.
+  final String? partnerType;
 
   @override
   State<CustomersPage> createState() => _CustomersPageState();
@@ -547,10 +554,15 @@ class _CustomersPageState extends State<CustomersPage> {
     if (oldWidget.refreshKey != widget.refreshKey) _load();
   }
 
-  void _load() => _future = widget.api.partners();
+  void _load() =>
+      _future = widget.api.partners(type: widget.partnerType);
 
   Future<void> _openCreateForm() async {
-    final created = await showPartnerForm(context, widget.api);
+    final created = await showPartnerForm(
+      context,
+      widget.api,
+      defaultType: widget.partnerType ?? 'CUSTOMER',
+    );
     if (created && mounted) {
       setState(_load);
       ScaffoldMessenger.of(context)
@@ -582,9 +594,11 @@ class _CustomersPageState extends State<CustomersPage> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           children: [
             PageTitle(
-              title: 'Müşteriler',
+              title: widget.partnerType == 'SUPPLIER' ? 'Tedarikçiler' : 'Müşteriler',
               subtitle:
-                  'Cari hesapları, bakiyeleri ve iletişim bilgilerini yönetin.',
+                  widget.partnerType == 'SUPPLIER'
+                      ? 'Tedarikçi kartları, borç bakiyeleri ve ödeme vadeleri.'
+                      : 'Cari hesapları, bakiyeleri ve iletişim bilgilerini yönetin.',
               trailing: IconButton.filled(
                 onPressed: _openCreateForm,
                 style: IconButton.styleFrom(

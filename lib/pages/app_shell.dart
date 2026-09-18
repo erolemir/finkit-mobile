@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 
 import '../api_client.dart';
 import '../services/app_notifications.dart';
+import '../services/background_sync.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'accounting_pages.dart';
 import 'chat_page.dart';
 import 'dashboard_page.dart';
 import 'data_pages.dart';
@@ -79,6 +81,7 @@ class _FinkitShellState extends State<FinkitShell> {
       if (_lastSeenNotificationId == 0) {
         // İlk kontrolde geçmiş bildirimler için uyarı gösterilmez.
         _lastSeenNotificationId = newestId;
+        await BackgroundSync.markSeen(newestId);
         return;
       }
       final fresh = items
@@ -100,6 +103,7 @@ class _FinkitShellState extends State<FinkitShell> {
       if (newestId > _lastSeenNotificationId) {
         _lastSeenNotificationId = newestId;
       }
+      await BackgroundSync.markSeen(newestId);
       await _loadUnreadCount();
     } catch (_) {
       // Ağ hatasında sessizce beklenir, bir sonraki turda tekrar denenir.
@@ -147,6 +151,12 @@ class _FinkitShellState extends State<FinkitShell> {
     });
     if (userId != null) {
       AppNotifications.instance.connect(widget.api, userId);
+      // Uygulama kapalıyken de bildirim gelebilmesi için periyodik görev.
+      await BackgroundSync.registerPeriodic();
+      // Test derlemesinde kısa süreli tek seferlik kontrol tetiklenir.
+      if (const bool.fromEnvironment('FINKIT_BG_TEST')) {
+        await BackgroundSync.runOnce(delay: const Duration(seconds: 20));
+      }
       // İlk kontrolde mevcut bildirimler taban alınır (eski bildirim uyarısı yok).
       await _checkNotifications();
       await _loadUnreadCount();
@@ -192,11 +202,61 @@ class _FinkitShellState extends State<FinkitShell> {
 
   /// Rol bazlı menü: müşavir ve mükellef için ayrı özellik setleri.
   List<MenuSection> get _menuSections {
-    final finances = MenuSection(
-      title: 'Finans ve Muhasebe',
+    // Satışlar: cari kartlar, ürün/hizmet, depo-stok, teklif ve satış belgeleri.
+    final sales = MenuSection(
+      title: 'Satışlar',
       entries: [
         MenuEntry(
-          title: _isClient ? 'Satışlar' : 'Satış Faturaları',
+          title: 'Müşteriler',
+          subtitle: 'Müşteri kartları ve cari bakiyeler',
+          icon: Icons.people_outline_rounded,
+          builder: (_) => _wrapPage(
+            'Müşteriler',
+            CustomersPage(
+              api: widget.api,
+              refreshKey: _refreshKey,
+              partnerType: 'CUSTOMER',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'Ürün ve Hizmetler',
+          subtitle: 'Fiyat, KDV oranı ve stok maliyeti',
+          icon: Icons.inventory_2_outlined,
+          builder: (_) => _wrapPage(
+            'Ürün ve Hizmetler',
+            ProductsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Depolar ve Stok',
+          subtitle: 'Depo bazlı miktar ve stok değeri',
+          icon: Icons.warehouse_outlined,
+          builder: (_) => _wrapPage(
+            'Depolar ve Stok',
+            StockPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Depo Tanımları',
+          subtitle: 'Şube ve depo kayıtları',
+          icon: Icons.add_business_outlined,
+          builder: (_) => _wrapPage(
+            'Depolar',
+            WarehousesPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Teklifler',
+          subtitle: 'Teklif hazırlayın ve faturaya çevirin',
+          icon: Icons.request_quote_outlined,
+          builder: (_) => _wrapPage(
+            'Teklifler',
+            QuotesPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Satış Faturaları',
           subtitle: 'Kesilen faturalar ve tahsilat durumu',
           icon: Icons.post_add_rounded,
           builder: (_) => _wrapPage(
@@ -209,33 +269,230 @@ class _FinkitShellState extends State<FinkitShell> {
           ),
         ),
         MenuEntry(
-          title: 'Giderler',
-          subtitle: 'Gelen faturalar ve işletme giderleri',
+          title: 'İade Faturaları',
+          subtitle: 'Cari, stok ve KDV etkisi tersine döner',
+          icon: Icons.assignment_return_outlined,
+          builder: (_) => _wrapPage(
+            'İade Faturaları',
+            SalesReturnsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Tahsilatlar',
+          subtitle: 'Müşteri tahsilatları ve avanslar',
+          icon: Icons.call_received_rounded,
+          builder: (_) => _wrapPage(
+            'Tahsilatlar',
+            CollectionsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Satış Raporu',
+          subtitle: 'Ciro, KDV, iade ve müşteri kırılımı',
+          icon: Icons.trending_up_rounded,
+          builder: (_) => _wrapPage(
+            'Satış Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'sales',
+              title: 'Satış Raporu',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'Tahsilat Raporu',
+          subtitle: 'Tahsil edilen, bekleyen ve gecikmiş',
+          icon: Icons.call_received_rounded,
+          builder: (_) => _wrapPage(
+            'Tahsilat Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'collections',
+              title: 'Tahsilat Raporu',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'Gelir-Gider Raporu',
+          subtitle: 'Tahakkuk ve nakit görünümü',
+          icon: Icons.auto_graph_rounded,
+          builder: (_) => _wrapPage(
+            'Gelir-Gider Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'income-expense',
+              title: 'Gelir-Gider Raporu',
+            ),
+          ),
+        ),
+      ],
+    );
+
+    // Giderler: işletme giderleri, tedarikçi faturaları, personel ve vergi.
+    final expenseSection = MenuSection(
+      title: 'Giderler',
+      entries: [
+        MenuEntry(
+          title: 'Gider Listesi',
+          subtitle: 'Kira, yakıt, danışmanlık ve diğer giderler',
           icon: Icons.receipt_long_outlined,
           builder: (_) => _wrapPage(
-            'Giderler',
+            'Gider Listesi',
             ExpensesPage(api: widget.api, refreshKey: _refreshKey),
           ),
         ),
         MenuEntry(
-          title: 'Nakit ve Banka',
-          subtitle: 'Kasa, banka hesapları ve hareketler',
+          title: 'Gelen Faturalar',
+          subtitle: 'Tedarikçi faturaları ve eşleştirme',
+          icon: Icons.inbox_outlined,
+          builder: (_) => _wrapPage(
+            'Gelen Faturalar',
+            PurchaseInvoicesPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Tedarikçiler',
+          subtitle: 'Tedarikçi kartları ve borç bakiyesi',
+          icon: Icons.local_shipping_outlined,
+          builder: (_) => _wrapPage(
+            'Tedarikçiler',
+            CustomersPage(
+              api: widget.api,
+              refreshKey: _refreshKey,
+              partnerType: 'SUPPLIER',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'Çalışanlar',
+          subtitle: 'Personel kartı, ücret ve avans',
+          icon: Icons.groups_2_outlined,
+          builder: (_) => _wrapPage(
+            'Çalışanlar',
+            EmployeesPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Bordro ve Puantaj',
+          subtitle: 'Dönemsel bordro ve işveren maliyeti',
+          icon: Icons.badge_outlined,
+          builder: (_) => _wrapPage(
+            'Bordro ve Puantaj',
+            PayrollPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Gider Raporu',
+          subtitle: 'Kategori, tedarikçi ve ödeme durumu',
+          icon: Icons.summarize_outlined,
+          builder: (_) => _wrapPage(
+            'Gider Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'expenses',
+              title: 'Gider Raporu',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'Ödemeler Raporu',
+          subtitle: 'Tedarikçi, personel ve vergi ödemeleri',
+          icon: Icons.payments_outlined,
+          builder: (_) => _wrapPage(
+            'Ödemeler Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'payments',
+              title: 'Ödemeler Raporu',
+            ),
+          ),
+        ),
+        MenuEntry(
+          title: 'KDV Raporu',
+          subtitle: 'KDV1 taslağı, tevkifat ve devreden',
+          icon: Icons.percent_rounded,
+          builder: (_) => _wrapPage(
+            'KDV Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'vat',
+              title: 'KDV Raporu',
+            ),
+          ),
+        ),
+      ],
+    );
+
+    // Nakit: kasa/banka, çek-senet ve nakit raporları.
+    final cash = MenuSection(
+      title: 'Nakit',
+      entries: [
+        MenuEntry(
+          title: 'Kasa ve Bankalar',
+          subtitle: 'Hesap bakiyeleri ve hareketler',
           icon: Icons.account_balance_wallet_outlined,
+          builder: (_) => _wrapPage(
+            'Kasa ve Bankalar',
+            FinancialAccountsPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Kasa Hareketleri',
+          subtitle: 'Giriş, çıkış ve virman kayıtları',
+          icon: Icons.swap_horiz_rounded,
           builder: (_) => _wrapPage(
             'Kasa ve Banka',
             CashPage(api: widget.api, refreshKey: _refreshKey),
           ),
         ),
-        if (!_isClient)
-          MenuEntry(
-            title: 'Cari Hesaplar',
-            subtitle: 'Müşteri ve tedarikçi bakiyeleri',
-            icon: Icons.people_outline_rounded,
-            builder: (_) => _wrapPage(
-              'Cari Hesaplar',
-              CustomersPage(api: widget.api, refreshKey: _refreshKey),
+        MenuEntry(
+          title: 'Çekler ve Senetler',
+          subtitle: 'Portföy, tahsil, teminat ve protesto',
+          icon: Icons.receipt_outlined,
+          builder: (_) => _wrapPage(
+            'Çekler ve Senetler',
+            ChecksNotesPage(api: widget.api, refreshKey: _refreshKey),
+          ),
+        ),
+        MenuEntry(
+          title: 'Kasa Raporu',
+          subtitle: 'Hesap bazlı açılış, giriş, çıkış, kapanış',
+          icon: Icons.account_balance_wallet_outlined,
+          builder: (_) => _wrapPage(
+            'Kasa Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'cash-register',
+              title: 'Kasa Raporu',
             ),
           ),
+        ),
+        MenuEntry(
+          title: 'Nakit Akış Raporu',
+          subtitle: 'Giriş-çıkış ve vade projeksiyonu',
+          icon: Icons.waterfall_chart_rounded,
+          builder: (_) => _wrapPage(
+            'Nakit Akış Raporu',
+            ReportDetailPage(
+              api: widget.api,
+              report: 'cash-flow',
+              title: 'Nakit Akış Raporu',
+            ),
+          ),
+        ),
+      ],
+    );
+
+    final reports = MenuSection(
+      title: 'Rapor Kütüphanesi',
+      entries: [
+        MenuEntry(
+          title: 'Tüm Raporlar',
+          subtitle: 'Stok, vade, bordro ve diğer raporlar',
+          icon: Icons.insert_chart_outlined_rounded,
+          builder: (_) =>
+              DashboardReportsPage(api: widget.api, refreshKey: _refreshKey),
+        ),
         if (!_isClient)
           MenuEntry(
             title: 'Harici Mükellefler',
@@ -244,23 +501,6 @@ class _FinkitShellState extends State<FinkitShell> {
             builder: (_) =>
                 ExternalClientsPage(api: widget.api, refreshKey: _refreshKey),
           ),
-        if (!_isClient)
-          MenuEntry(
-            title: 'Personel ve Bordro',
-            subtitle: 'Çalışan, puantaj ve bordro işlemleri',
-            icon: Icons.groups_2_outlined,
-            builder: (_) => _wrapPage(
-              'Personel ve Bordro',
-              PayrollPage(api: widget.api, refreshKey: _refreshKey),
-            ),
-          ),
-        MenuEntry(
-          title: 'Raporlar',
-          subtitle: 'Satış, KDV, nakit ve vade raporları',
-          icon: Icons.insert_chart_outlined_rounded,
-          builder: (_) =>
-              DashboardReportsPage(api: widget.api, refreshKey: _refreshKey),
-        ),
       ],
     );
 
@@ -479,7 +719,16 @@ class _FinkitShellState extends State<FinkitShell> {
       ],
     );
 
-    return [finances, documents, communication, planning, account];
+    return [
+      sales,
+      expenseSection,
+      cash,
+      reports,
+      documents,
+      communication,
+      planning,
+      account,
+    ];
   }
 
   void _openReports() {

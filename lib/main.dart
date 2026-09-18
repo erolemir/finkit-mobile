@@ -5,6 +5,7 @@ import 'api_client.dart';
 import 'pages/app_shell.dart';
 import 'pages/login_page.dart';
 import 'services/app_notifications.dart';
+import 'services/background_sync.dart';
 import 'theme.dart';
 
 Future<void> main() async {
@@ -51,6 +52,7 @@ class _FinkitMobileAppState extends State<FinkitMobileApp> {
   }
 
   Future<void> _logout() async {
+    await BackgroundSync.cancelAll();
     await _api.logout();
     if (!mounted) return;
     setState(() => _authenticated = false);

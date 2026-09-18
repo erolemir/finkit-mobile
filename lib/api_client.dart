@@ -41,6 +41,19 @@ class FinkitApi {
     role = prefs.getString(_roleKey);
   }
 
+  /// Arka plan görevleri için kayıtlı oturumla istemci üretir.
+  static Future<FinkitApi?> fromStoredSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final storedToken = prefs.getString(_tokenKey);
+    if (storedToken == null || storedToken.isEmpty) return null;
+    final api = FinkitApi();
+    api.baseUrl = prefs.getString(_baseUrlKey) ?? defaultBaseUrl;
+    api.token = storedToken;
+    api.refreshToken = prefs.getString(_refreshTokenKey);
+    api.email = prefs.getString(_emailKey);
+    return api;
+  }
+
   Future<void> login({
     required String email,
     required String password,
@@ -48,12 +61,29 @@ class FinkitApi {
     required String apiBaseUrl,
   }) async {
     baseUrl = apiBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
-    final response = await http.post(
-      Uri.parse('$baseUrl/auth/login?role=$role'),
+    var effectiveRole = role;
+    var response = await http.post(
+      Uri.parse('$baseUrl/auth/login?role=$effectiveRole'),
       headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
       body: {'username': email.trim(), 'password': password},
     );
-    final body = _decode(response);
+    var body = _decode(response);
+    // Rol seçimi hesap türüyle uyuşmuyorsa diğer rolle bir kez daha denenir;
+    // böylece mükellef/müşavir ayrımı kullanıcıyı ekranda bırakmaz.
+    final roleMismatch =
+        response.statusCode == 403 &&
+        (_detail(body) ?? '').toLowerCase().contains('eşleşmiyor');
+    if (roleMismatch) {
+      effectiveRole = effectiveRole.toUpperCase() == 'CLIENT'
+          ? 'ADVISOR'
+          : 'CLIENT';
+      response = await http.post(
+        Uri.parse('$baseUrl/auth/login?role=$effectiveRole'),
+        headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'username': email.trim(), 'password': password},
+      );
+      body = _decode(response);
+    }
     if (response.statusCode >= 400) {
       throw ApiException(
         _detail(body) ?? 'Giriş yapılamadı',
@@ -63,12 +93,12 @@ class FinkitApi {
     token = body['access_token'] as String?;
     refreshToken = body['refresh_token'] as String?;
     this.email = email.trim();
-    this.role = role;
+    this.role = effectiveRole;
     demoMode = false;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_baseUrlKey, baseUrl);
     await prefs.setString(_emailKey, this.email!);
-    await prefs.setString(_roleKey, role);
+    await prefs.setString(_roleKey, effectiveRole);
     if (token != null) await prefs.setString(_tokenKey, token!);
     if (refreshToken != null) {
       await prefs.setString(_refreshTokenKey, refreshToken!);
@@ -162,11 +192,29 @@ class FinkitApi {
     query: {'partner_type': ?type, 'page_size': '200'},
   );
 
-  Future<List<Map<String, dynamic>>> salesInvoices() =>
-      _list('/accounting/sales-invoices', query: {'page_size': '100'});
+  Future<List<Map<String, dynamic>>> salesInvoices({
+    String? type,
+    String? status,
+  }) => _list(
+    '/accounting/sales-invoices',
+    query: {
+      'page_size': '100',
+      'invoice_type': ?type,
+      'status': ?status,
+    },
+  );
 
-  Future<List<Map<String, dynamic>>> purchaseInvoices() =>
-      _list('/accounting/purchase-invoices', query: {'page_size': '100'});
+  Future<List<Map<String, dynamic>>> purchaseInvoices({
+    String? type,
+    String? status,
+  }) => _list(
+    '/accounting/purchase-invoices',
+    query: {
+      'page_size': '100',
+      'invoice_type': ?type,
+      'status': ?status,
+    },
+  );
 
   Future<List<Map<String, dynamic>>> expenses() =>
       _list('/accounting/expenses', query: {'page_size': '100'});
@@ -272,6 +320,328 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> salesInvoice(int invoiceId) =>
       _get('/accounting/sales-invoices/$invoiceId');
+
+  // ── Ürün / hizmet ve stok ──────────────────────────────────
+  Future<Map<String, dynamic>> createProduct({
+    required String code,
+    required String name,
+    String type = 'PRODUCT',
+    String unit = 'ADET',
+    double vatRate = 20,
+    double salesPrice = 0,
+    double purchasePrice = 0,
+    double manualCost = 0,
+    bool trackInventory = true,
+    String? barcode,
+  }) => _post('/accounting/products', {
+    'code': code,
+    'name': name,
+    'product_type': type,
+    'unit': unit,
+    'vat_rate': vatRate,
+    'sales_price': salesPrice,
+    'purchase_price': purchasePrice,
+    'manual_cost': manualCost,
+    'track_inventory': trackInventory,
+    'barcode': ?barcode,
+  });
+
+  Future<List<Map<String, dynamic>>> warehouses() =>
+      _listAny('/accounting/warehouses');
+
+  Future<Map<String, dynamic>> createWarehouse({
+    required String code,
+    required String name,
+    String? city,
+    bool isDefault = false,
+  }) => _post('/accounting/warehouses', {
+    'code': code,
+    'name': name,
+    'city': ?city,
+    'is_default': isDefault,
+  });
+
+  Future<List<Map<String, dynamic>>> stockBalances({int? warehouseId}) =>
+      _listAny(
+        '/accounting/stock/balances',
+        query: {
+          if (warehouseId != null) 'warehouse_id': '$warehouseId',
+        },
+      );
+
+  Future<List<Map<String, dynamic>>> stockMovements() =>
+      _list('/accounting/stock/movements', query: {'page_size': '100'});
+
+  Future<Map<String, dynamic>> createStockMovement({
+    required int warehouseId,
+    required int productId,
+    required double quantity,
+    String type = 'IN',
+    double? unitCost,
+    String? description,
+  }) => _post('/accounting/stock/movements', {
+    'warehouse_id': warehouseId,
+    'product_id': productId,
+    'movement_type': type,
+    'movement_date': _today(),
+    'quantity': quantity,
+    'unit_cost': ?unitCost,
+    'description': ?description,
+  });
+
+  Future<Map<String, dynamic>> createStockTransfer({
+    required int sourceWarehouseId,
+    required int targetWarehouseId,
+    required int productId,
+    required double quantity,
+  }) => _post('/accounting/stock/transfers', {
+    'source_warehouse_id': sourceWarehouseId,
+    'target_warehouse_id': targetWarehouseId,
+    'product_id': productId,
+    'movement_date': _today(),
+    'quantity': quantity,
+  });
+
+  // ── Teklifler ──────────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> quotes({String? status}) => _list(
+    '/accounting/quotes',
+    query: {
+      'page_size': '100',
+      'status': ?status,
+    },
+  );
+
+  Future<Map<String, dynamic>> createQuote({
+    required int partnerId,
+    required String description,
+    required double quantity,
+    required double unitPrice,
+    double vatRate = 20,
+    int? productId,
+    DateTime? validUntil,
+    String? notes,
+  }) => _post('/accounting/quotes', {
+    'partner_id': partnerId,
+    'issue_date': _today(),
+    'valid_until': ?(validUntil == null ? null : _dateValue(validUntil)),
+    'currency': 'TRY',
+    'exchange_rate': 1,
+    'notes': ?notes,
+    'lines': [
+      {
+        'product_id': ?productId,
+        'description': description,
+        'quantity': quantity,
+        'unit': 'ADET',
+        'unit_price': unitPrice,
+        'discount_rate': 0,
+        'vat_rate': vatRate,
+      },
+    ],
+  });
+
+  Future<Map<String, dynamic>> setQuoteStatus(int quoteId, String status) =>
+      _patch('/accounting/quotes/$quoteId/status', {'status': status});
+
+  Future<Map<String, dynamic>> convertQuote(int quoteId) =>
+      _post('/accounting/quotes/$quoteId/convert', const {});
+
+  // ── Gelen faturalar ────────────────────────────────────────
+  Future<Map<String, dynamic>> createPurchaseInvoice({
+    required int supplierId,
+    required String description,
+    required double netAmount,
+    double vatRate = 20,
+    DateTime? dueDate,
+    bool inventory = false,
+    int? productId,
+    int? warehouseId,
+    String? number,
+  }) => _post('/accounting/purchase-invoices', {
+    'supplier_id': supplierId,
+    'invoice_type': 'ALIS',
+    'source_type': 'MANUAL',
+    'number': ?number,
+    'issue_date': _today(),
+    'due_date': ?(dueDate == null ? null : _dateValue(dueDate)),
+    'currency': 'TRY',
+    'exchange_rate': 1,
+    'lines': [
+      {
+        'product_id': ?productId,
+        'warehouse_id': ?(inventory ? warehouseId : null),
+        'description': description,
+        'quantity': 1,
+        'unit': 'ADET',
+        'unit_price': netAmount,
+        'discount_rate': 0,
+        'vat_rate': vatRate,
+      },
+    ],
+  });
+
+  Future<Map<String, dynamic>> postPurchaseInvoice(int invoiceId) =>
+      _post('/accounting/purchase-invoices/$invoiceId/post', const {});
+
+  Future<List<Map<String, dynamic>>> expenseCategories() =>
+      _listAny('/accounting/expense-categories');
+
+  Future<Map<String, dynamic>> createExpenseCategory({
+    required String name,
+    String? code,
+  }) => _post('/accounting/expense-categories', {
+    'name': name,
+    'code': ?code,
+  });
+
+  // ── Tahsilat / ödeme ───────────────────────────────────────
+  Future<List<Map<String, dynamic>>> collections() =>
+      _list('/accounting/collections', query: {'page_size': '100'});
+
+  Future<List<Map<String, dynamic>>> supplierPayments() =>
+      _list('/accounting/supplier-payments', query: {'page_size': '100'});
+
+  Future<Map<String, dynamic>> createSupplierPayment({
+    required int supplierId,
+    required double amount,
+    int? accountId,
+  }) => _post('/accounting/supplier-payments', {
+    'supplier_id': supplierId,
+    'payment_date': _today(),
+    'amount': amount,
+    'currency': 'TRY',
+    'exchange_rate': 1,
+    'payment_method': 'HAVALE',
+    'financial_account_id': ?accountId,
+    'allocations': const [],
+  });
+
+  Future<Map<String, dynamic>> createFinancialAccount({
+    required String name,
+    String type = 'CASH',
+    String? bankName,
+    String? iban,
+    double openingBalance = 0,
+  }) => _post('/accounting/financial-accounts', {
+    'name': name,
+    'account_type': type,
+    'bank_name': ?bankName,
+    'iban': ?iban,
+    'currency': 'TRY',
+    'opening_balance': openingBalance,
+  });
+
+  // ── Çek ve senetler ────────────────────────────────────────
+  Future<List<Map<String, dynamic>>> checksNotes({String? direction}) => _list(
+    '/accounting/checks-notes',
+    query: {
+      'page_size': '100',
+      'direction': ?direction,
+    },
+  );
+
+  Future<Map<String, dynamic>> createCheckNote({
+    required String direction,
+    required String instrumentType,
+    required String serialNo,
+    required DateTime dueDate,
+    required double amount,
+    int? partnerId,
+    String? bankName,
+    String? counterparty,
+    String? notes,
+  }) => _post('/accounting/checks-notes', {
+    'direction': direction,
+    'instrument_type': instrumentType,
+    'serial_no': serialNo,
+    'issue_date': _today(),
+    'due_date': _dateValue(dueDate),
+    'amount': amount,
+    'currency': 'TRY',
+    'exchange_rate': 1,
+    'partner_id': ?partnerId,
+    'bank_name': ?bankName,
+    'received_from': ?(direction == 'IN' ? counterparty : null),
+    'given_to': ?(direction == 'OUT' ? counterparty : null),
+    'notes': ?notes,
+  });
+
+  Future<Map<String, dynamic>> addCheckNoteEvent({
+    required int checkId,
+    required String eventType,
+    String? status,
+    String? description,
+  }) => _post('/accounting/checks-notes/$checkId/events', {
+    'event_date': _today(),
+    'event_type': eventType,
+    'status': ?status,
+    'description': ?description,
+  });
+
+  // ── Personel ───────────────────────────────────────────────
+  Future<Map<String, dynamic>> createEmployee({
+    required String employeeNo,
+    required String firstName,
+    required String lastName,
+    required double grossSalary,
+    String? nationalId,
+    String? position,
+    String? department,
+    String? phone,
+    String? email,
+    String? iban,
+    DateTime? hireDate,
+  }) => _post('/accounting/employees', {
+    'employee_no': employeeNo,
+    'first_name': firstName,
+    'last_name': lastName,
+    'national_id': ?nationalId,
+    'hire_date': _dateValue(hireDate ?? DateTime.now()),
+    'position': ?position,
+    'department': ?department,
+    'phone': ?phone,
+    'email': ?email,
+    'iban': ?iban,
+    'gross_salary': grossSalary,
+    'currency': 'TRY',
+  });
+
+  Future<Map<String, dynamic>> createEmployeeAdvance({
+    required int employeeId,
+    required double amount,
+  }) => _post('/accounting/employees/advances', {
+    'employee_id': employeeId,
+    'advance_date': _today(),
+    'amount': amount,
+    'currency': 'TRY',
+    'exchange_rate': 1,
+  });
+
+  Future<Map<String, dynamic>> createAttendance({
+    required int employeeId,
+    String? workDate,
+    double overtimeHours = 0,
+  }) => _post('/accounting/employees/attendance', {
+    'employee_id': employeeId,
+    'work_date': workDate ?? _today(),
+    'worked_days': 1,
+    'normal_hours': 7.5,
+    'overtime_hours': overtimeHours,
+  });
+
+  Future<Map<String, dynamic>> createLeave({
+    required int employeeId,
+    required String leaveType,
+    required String startDate,
+    required String endDate,
+    double days = 1,
+  }) => _post('/accounting/employees/leaves', {
+    'employee_id': employeeId,
+    'leave_type': leaveType,
+    'start_date': startDate,
+    'end_date': endDate,
+    'days': days,
+  });
 
   // ── Bildirimler ────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> notifications({int pageSize = 50}) =>
@@ -654,6 +1024,37 @@ class FinkitApi {
   }) async {
     final body = await _get(path, query: query);
     return (body['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  /// Hem `{"items": [...]}` hem de doğrudan `[...]` dönen uçlar için liste okur.
+  Future<List<Map<String, dynamic>>> _listAny(
+    String path, {
+    Map<String, String>? query,
+  }) async {
+    if (demoMode) {
+      final demo = DemoData.get(path);
+      return (demo['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
+    final response = await _authorized(() => http.get(uri, headers: _headers()));
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(decoded is Map<String, dynamic>
+                ? decoded
+                : <String, dynamic>{'detail': decoded.toString()}) ??
+            'Veri alınamadı',
+        response.statusCode,
+      );
+    }
+    final raw = decoded is Map ? decoded['items'] : decoded;
+    return (raw as List? ?? const [])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
