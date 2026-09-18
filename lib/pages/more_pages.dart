@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api_client.dart';
 import '../theme.dart';
@@ -1275,6 +1277,363 @@ class _DanismaQuestionPageState extends State<DanismaQuestionPage> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// PayTR ödeme formunu uygulama içinde açar (kart bilgisi backend'e gitmez).
+Future<void> startInAppPayment(
+  BuildContext context,
+  FinkitApi api, {
+  int? extraChargeId,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final prepared = await api.preparePayment(
+      paymentPurpose: extraChargeId == null ? 'monthly_fee' : 'extra_charge',
+      extraChargeId: extraChargeId,
+    );
+    final postUrl = prepared['post_url']?.toString();
+    final fields = prepared['fields'];
+    if (postUrl == null || postUrl.isEmpty || fields is! Map) {
+      throw Exception(prepared['message']?.toString() ?? 'Ödeme başlatılamadı');
+    }
+    if (!context.mounted) return;
+
+    // Kart bilgileri yalnızca cihazda alınır ve doğrudan PayTR'ye gönderilir.
+    final card = await showCardEntrySheet(
+      context,
+      amount: double.tryParse('${fields['payment_amount']}') ?? 0,
+    );
+    if (card == null || !context.mounted) return;
+
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => PaymentCheckoutPage(
+          title: 'Ödeme',
+          postUrl: postUrl,
+          fields: {...Map<String, dynamic>.from(fields), ...card},
+          returnUrl: '/paytr/3d-result',
+        ),
+      ),
+    );
+    if (result == 'paid') {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Ödemeniz alındı, teşekkürler!')),
+      );
+    }
+  } catch (error) {
+    // Ödeme başlatılamazsa kullanıcı web paneline yönlendirilir.
+    messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    if (context.mounted) await openWebPanel(context, api);
+  }
+}
+
+/// Kart bilgisi giriş formu. Veriler cihazda kalır, sunucuya gönderilmez.
+Future<Map<String, String>?> showCardEntrySheet(
+  BuildContext context, {
+  required double amount,
+}) {
+  final owner = TextEditingController();
+  final number = TextEditingController();
+  final month = TextEditingController();
+  final year = TextEditingController();
+  final cvv = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+
+  return showModalBottomSheet<Map<String, String>>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        0,
+        20,
+        MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
+      ),
+      child: Form(
+        key: formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Kart Bilgileri',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                amount > 0
+                    ? 'Ödenecek tutar: ${moneyText(amount)}'
+                    : 'Kart bilgileriniz yalnızca PayTR ile paylaşılır.',
+                style: Theme.of(sheetContext).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: owner,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: 'Kart Üzerindeki İsim',
+                  prefixIcon: Icon(Icons.person_outline_rounded),
+                ),
+                validator: (value) => (value ?? '').trim().length < 3
+                    ? 'Kart sahibinin adını girin'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: number,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Kart Numarası',
+                  prefixIcon: Icon(Icons.credit_card_rounded),
+                ),
+                validator: (value) {
+                  final digits = (value ?? '').replaceAll(RegExp(r'\D'), '');
+                  return digits.length < 15
+                      ? 'Geçerli kart numarası girin'
+                      : null;
+                },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: month,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Ay (AA)'),
+                      validator: (value) {
+                        final parsed = int.tryParse((value ?? '').trim());
+                        return parsed == null || parsed < 1 || parsed > 12
+                            ? 'AA'
+                            : null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: year,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Yıl (YYYY)',
+                      ),
+                      validator: (value) {
+                        final parsed = int.tryParse((value ?? '').trim());
+                        return parsed == null || parsed < 2024 ? 'YYYY' : null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: cvv,
+                      keyboardType: TextInputType.number,
+                      obscureText: true,
+                      decoration: const InputDecoration(labelText: 'CVV'),
+                      validator: (value) {
+                        final digits = (value ?? '').trim();
+                        return digits.length < 3 ? 'CVV' : null;
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    if (!formKey.currentState!.validate()) return;
+                    Navigator.pop(sheetContext, {
+                      'cc_owner': owner.text.trim(),
+                      'card_number': number.text.replaceAll(RegExp(r'\D'), ''),
+                      'expiry_month': month.text.trim().padLeft(2, '0'),
+                      'expiry_year': year.text.trim(),
+                      'cvv': cvv.text.trim(),
+                    });
+                  },
+                  icon: const Icon(Icons.lock_rounded, size: 18),
+                  label: const Text('Güvenli Ödemeye Devam Et'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  ).whenComplete(() {
+    owner.dispose();
+    number.dispose();
+    month.dispose();
+    year.dispose();
+    cvv.dispose();
+  });
+}
+
+/// Ödeme alternatifi: web panelini tarayıcıda açar.
+Future<void> openWebPanel(BuildContext context, FinkitApi api) async {
+  final uri = Uri.parse(api.baseUrl.replaceAll(RegExp(r'/api$'), ''));
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Tarayıcı açılamadı: $uri')),
+      );
+    }
+  } catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+  }
+}
+
+class PaymentCheckoutPage extends StatefulWidget {
+  const PaymentCheckoutPage({
+    super.key,
+    required this.title,
+    required this.postUrl,
+    required this.fields,
+    required this.returnUrl,
+  });
+
+  final String title;
+  final String postUrl;
+  final Map<String, dynamic> fields;
+  final String returnUrl;
+
+  @override
+  State<PaymentCheckoutPage> createState() => _PaymentCheckoutPageState();
+}
+
+class _PaymentCheckoutPageState extends State<PaymentCheckoutPage> {
+  late final WebViewController _controller;
+  bool _finished = false;
+  bool _success = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            // PayTR tamamlandığında kendi sonuç sayfamıza döner.
+            if (request.url.contains('/paytr/3d-result') ||
+                request.url.contains('/paytr/callback') ||
+                request.url.contains(widget.returnUrl)) {
+              _onReturn(request.url);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadHtmlString(_checkoutHtml());
+  }
+
+  void _onReturn(String url) {
+    if (_finished) return;
+    final lower = url.toLowerCase();
+    final failed =
+        lower.contains('fail') ||
+        lower.contains('error') ||
+        lower.contains('hata');
+    setState(() {
+      _finished = true;
+      _success = !failed;
+    });
+  }
+
+  String _escape(String value) => value
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+
+  /// PayTR'ye doğrudan gönderilen gizli form (kart alanları PayTR'de eklenir).
+  String _checkoutHtml() {
+    final inputs = widget.fields.entries
+        .map(
+          (entry) =>
+              '<input type="hidden" name="${_escape(entry.key)}" '
+              'value="${_escape('${entry.value}')}">',
+        )
+        .join();
+    return '''
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#F6F7F9;margin:0;padding:40px 20px;text-align:center;color:#17202B}</style>
+</head><body>
+<h2 style="font-size:17px">Ödeme sayfasına yönlendiriliyorsunuz</h2>
+<p style="color:#687181;font-size:13px">Kart bilgileriniz doğrudan PayTR'ye iletilir.</p>
+<form id="paytr" action="${_escape(widget.postUrl)}" method="post">$inputs</form>
+<script>document.getElementById('paytr').submit();</script>
+</body></html>
+''';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      appBar: AppBar(title: Text(widget.title)),
+      body: _finished
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _success
+                          ? Icons.check_circle_rounded
+                          : Icons.error_outline_rounded,
+                      size: 56,
+                      color: _success
+                          ? FinkitColors.success
+                          : FinkitColors.danger,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      _success ? 'Ödeme alındı' : 'Ödeme tamamlanamadı',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _success
+                          ? 'Ödemeniz kaydedildi; makbuz bildirimi gönderilecek.'
+                          : 'Kart bilgilerini kontrol edip tekrar deneyebilirsiniz.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: FinkitColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(
+                          context,
+                          _success ? 'paid' : 'failed',
+                        ),
+                        child: const Text('Kapat'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : WebViewWidget(controller: _controller),
     );
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../api_client.dart';
 import '../services/app_notifications.dart';
@@ -431,7 +430,7 @@ class PaymentsListPage extends StatelessWidget {
         refreshKey: refreshKey,
         trailing: isClient
             ? IconButton.filled(
-                onPressed: () => _openWebPayment(context),
+                onPressed: () => _startPayment(context),
                 style: IconButton.styleFrom(
                   backgroundColor: FinkitColors.ink,
                   foregroundColor: Colors.white,
@@ -496,21 +495,9 @@ class PaymentsListPage extends StatelessWidget {
     );
   }
 
-  /// Ödeme (PayTR 3D) akışı web panelinde tamamlanır; tek dokunuşla açılır.
-  Future<void> _openWebPayment(BuildContext context) async {
-    final uri = Uri.parse(api.baseUrl.replaceAll(RegExp(r'/api$'), ''));
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!opened) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Tarayıcı açılamadı: $uri')),
-        );
-      }
-    } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
-    }
-  }
+  /// Uygulama içi PayTR ödeme akışı; başarısız olursa web paneli önerilir.
+  Future<void> _startPayment(BuildContext context, {int? extraChargeId}) =>
+      startInAppPayment(context, api, extraChargeId: extraChargeId);
 
   /// Müşavir elle ödeme (nakit/havale) kaydeder.
   Future<void> _manualPaymentSheet(BuildContext context) async {
@@ -1428,6 +1415,14 @@ class ExtraChargesListPage extends StatelessWidget {
           value: moneyText(item['amount']),
           valueSubtitle: statusLabel(item['status']?.toString()),
           status: item['status']?.toString(),
+          onTap: isClient && item['status'] == 'PENDING'
+              ? () {
+                  final id = int.tryParse('${item['id']}');
+                  if (id != null) {
+                    startInAppPayment(context, api, extraChargeId: id);
+                  }
+                }
+              : null,
         ),
       ),
     );

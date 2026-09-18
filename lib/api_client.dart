@@ -593,6 +593,24 @@ class FinkitApi {
     'city': ?city,
   });
 
+  // ── Ödeme (PayTR) ──────────────────────────────────────────
+  /// PayTR ödeme formu alanlarını üretir (kart bilgisi içermez).
+  Future<Map<String, dynamic>> preparePayment({
+    double amount = 0,
+    String paymentPurpose = 'monthly_fee',
+    int monthCount = 1,
+    int installmentCount = 0,
+    int? extraChargeId,
+  }) => _post('/paytr/prepare-payment', {
+    'amount': amount,
+    'payment_purpose': paymentPurpose,
+    'month_count': monthCount,
+    'installment_count': installmentCount,
+    'extra_charge_id': ?extraChargeId,
+    'non_3d': false,
+    'store_card': false,
+  });
+
   Future<Map<String, dynamic>> _get(
     String path, {
     Map<String, String>? query,
