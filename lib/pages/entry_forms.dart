@@ -5,6 +5,7 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'partner_form_page.dart';
 import 'form_layout.dart';
+import 'invoice_detail_page.dart';
 
 const _vatRates = <double>[0, 1, 8, 10, 18, 20];
 
@@ -1342,21 +1343,55 @@ Future<bool> showPurchaseInvoiceForm(
   BuildContext context,
   FinkitApi api,
 ) async {
-  final partners = await api.partners();
+  var partners = await api.partners();
+  if (!context.mounted) return false;
+  var suppliers = partners
+      .where(
+        (p) =>
+            const ['SUPPLIER', 'BOTH'].contains(p['partner_type']) &&
+            p['is_active'] != false,
+      )
+      .toList();
+  if (suppliers.isEmpty) {
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('İlk tedarikçinizi ekleyin'),
+        content: const Text(
+          'Gelen faturayı kaydetmek için bir tedarikçi gerekli. Ekledikten sonra faturaya devam edebilirsiniz.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Tedarikçi Ekle'),
+          ),
+        ],
+      ),
+    );
+    if (create != true || !context.mounted) return false;
+    final created = await showPartnerCreatePage(
+      context,
+      api,
+      defaultType: 'SUPPLIER',
+    );
+    if (!created || !context.mounted) return false;
+    partners = await api.partners();
+    suppliers = partners
+        .where(
+          (p) =>
+              const ['SUPPLIER', 'BOTH'].contains(p['partner_type']) &&
+              p['is_active'] != false,
+        )
+        .toList();
+    if (!context.mounted || suppliers.isEmpty) return false;
+  }
   final products = await api.products();
   final warehouses = await api.warehouses();
   if (!context.mounted) return false;
-  final suppliers = partners
-      .where((partner) => partner['partner_type']?.toString() != 'CUSTOMER')
-      .toList();
-  if (suppliers.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Gelen fatura için önce tedarikçi kartı ekleyin.'),
-      ),
-    );
-    return false;
-  }
 
   final description = TextEditingController();
   final netAmount = TextEditingController();
@@ -1369,6 +1404,7 @@ Future<bool> showPurchaseInvoiceForm(
   var vatRate = 20.0;
   var dueDate = DateTime.now().add(const Duration(days: 30));
   var inventory = products.isNotEmpty && warehouses.isNotEmpty;
+  int? createdInvoiceId;
 
   final created = await showModalBottomSheet<bool>(
     context: context,
@@ -1377,23 +1413,25 @@ Future<bool> showPurchaseInvoiceForm(
     backgroundColor: FinkitColors.canvas,
     builder: (_) => _EntrySheet(
       title: 'Yeni Gelen Fatura',
-      subtitle: 'Kaydettiğinizde tedarikçi cari borcu, KDV ve (seçiliyse) stok girişi oluşur.',
-      saveLabel: 'Faturayı Kaydet',
+      subtitle: 'Taslağı oluşturun, detaylarını inceleyip faturayı onaylayın.',
+      saveLabel: 'Taslağı Kaydet ve İncele',
       onSave: () async {
-        final invoice = await api.createPurchaseInvoice(
-          supplierId: supplierId!,
-          description: description.text.trim(),
-          netAmount: _number(netAmount.text),
-          vatRate: vatRate,
-          dueDate: dueDate,
-          inventory: inventory,
-          productId: productId,
-          warehouseId: warehouseId,
-          number: _nullIfEmpty(invoiceNumber.text),
-        );
-        final invoiceId = invoice['id'] as int?;
-        if (invoiceId != null) {
-          await api.postPurchaseInvoice(invoiceId);
+        if (createdInvoiceId == null) {
+          final invoice = await api.createPurchaseInvoice(
+            supplierId: supplierId!,
+            description: description.text.trim(),
+            netAmount: _number(netAmount.text),
+            vatRate: vatRate,
+            dueDate: dueDate,
+            inventory: inventory,
+            productId: productId,
+            warehouseId: warehouseId,
+            number: _nullIfEmpty(invoiceNumber.text),
+          );
+          createdInvoiceId = invoice['id'] as int?;
+        }
+        if (createdInvoiceId == null) {
+          throw ApiException('Fatura kaydı doğrulanamadı');
         }
       },
       buildFields: (refresh) => [
@@ -1538,6 +1576,11 @@ Future<bool> showPurchaseInvoiceForm(
       ],
     ),
   );
+  if (created == true && createdInvoiceId != null && context.mounted) {
+    await openInvoiceDetail(context, api, {
+      'id': createdInvoiceId,
+    }, purchase: true);
+  }
   return created ?? false;
 }
 

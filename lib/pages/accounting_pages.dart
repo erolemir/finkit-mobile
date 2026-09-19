@@ -6,6 +6,7 @@ import '../widgets.dart';
 import 'api_list_page.dart';
 import 'data_pages.dart' show SummaryGrid, SummaryItem;
 import 'entry_forms.dart';
+import 'invoice_detail_page.dart';
 
 /// Liste + arama + isteğe bağlı "yeni kayıt" düğmesi olan ortak sayfa.
 /// Kayıt oluşturulduğunda liste kendini yeniler.
@@ -48,6 +49,27 @@ class AccountingListPage extends StatefulWidget {
 
 class _AccountingListPageState extends State<AccountingListPage> {
   int _localRefresh = 0;
+  bool _creating = false;
+
+  Future<void> _create() async {
+    if (_creating || widget.onCreate == null) return;
+    setState(() => _creating = true);
+    try {
+      final created = await widget.onCreate!(context);
+      if (created && mounted) setState(() => _localRefresh++);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(error.toString()),
+            action: SnackBarAction(label: 'Tekrar Dene', onPressed: _create),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,10 +93,7 @@ class _AccountingListPageState extends State<AccountingListPage> {
                 backgroundColor: FinkitColors.ink,
                 foregroundColor: Colors.white,
               ),
-              onPressed: () async {
-                final created = await widget.onCreate!(context);
-                if (created && mounted) setState(() => _localRefresh++);
-              },
+              onPressed: _creating ? null : _create,
               icon: Icon(widget.createIcon),
             ),
     );
@@ -97,7 +116,8 @@ class ProductsPage extends StatelessWidget {
       loader: api.products,
       createIcon: Icons.add_box_outlined,
       searchHint: 'Ürün, hizmet veya barkod ara',
-      searchText: (item) => '${item['name']} ${item['code']} ${item['barcode']}',
+      searchText: (item) =>
+          '${item['name']} ${item['code']} ${item['barcode']}',
       emptyIcon: Icons.inventory_2_outlined,
       emptyTitle: 'Ürün bulunamadı',
       emptyDescription: 'Satışta kullanmak için ürün veya hizmet ekleyin.',
@@ -127,10 +147,7 @@ class ProductsPage extends StatelessWidget {
           title: item['name']?.toString() ?? 'Ürün',
           rows: [
             ('Kod', '${item['code'] ?? '-'}'),
-            (
-              'Tip',
-              item['product_type'] == 'SERVICE' ? 'Hizmet' : 'Ürün',
-            ),
+            ('Tip', item['product_type'] == 'SERVICE' ? 'Hizmet' : 'Ürün'),
             ('Birim', '${item['unit'] ?? 'ADET'}'),
             ('KDV', '%${_trimNumber(item['vat_rate'])}'),
             ('Satış fiyatı', moneyText(item['sales_price'])),
@@ -146,7 +163,11 @@ class ProductsPage extends StatelessWidget {
 
 /// Depolar.
 class WarehousesPage extends StatelessWidget {
-  const WarehousesPage({super.key, required this.api, required this.refreshKey});
+  const WarehousesPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
 
   final FinkitApi api;
   final int refreshKey;
@@ -214,8 +235,16 @@ class _StockPageState extends State<StockPage> {
         );
         return SummaryGrid(
           items: [
-            SummaryItem('Toplam Miktar', _trimNumber(quantity), Icons.straighten),
-            SummaryItem('Stok Değeri', moneyText(value), Icons.savings_outlined),
+            SummaryItem(
+              'Toplam Miktar',
+              _trimNumber(quantity),
+              Icons.straighten,
+            ),
+            SummaryItem(
+              'Stok Değeri',
+              moneyText(value),
+              Icons.savings_outlined,
+            ),
           ],
         );
       },
@@ -244,7 +273,10 @@ class _StockPageState extends State<StockPage> {
           title: item['product_name']?.toString() ?? 'Stok',
           rows: [
             ('Depo', '${item['warehouse_name'] ?? '-'}'),
-            ('Miktar', '${_trimNumber(item['quantity'])} ${item['unit'] ?? ''}'),
+            (
+              'Miktar',
+              '${_trimNumber(item['quantity'])} ${item['unit'] ?? ''}',
+            ),
             ('Birim maliyet', moneyText(item['unit_cost'])),
             ('Stok değeri', moneyText(item['total_cost'])),
           ],
@@ -254,7 +286,11 @@ class _StockPageState extends State<StockPage> {
   }
 
   Future<void> _openMovementForm(BuildContext context, String type) async {
-    final created = await showStockMovementForm(context, widget.api, type: type);
+    final created = await showStockMovementForm(
+      context,
+      widget.api,
+      type: type,
+    );
     if (created && mounted) setState(() => _localRefresh++);
   }
 }
@@ -290,17 +326,21 @@ class _QuotesPageState extends State<QuotesPage> {
       summaryBuilder: (items) {
         final total = items.fold<double>(
           0,
-          (sum, item) => sum + (double.tryParse('${item['gross_amount']}') ?? 0),
+          (sum, item) =>
+              sum + (double.tryParse('${item['gross_amount']}') ?? 0),
         );
         final open = items
             .where(
-              (item) =>
-                  item['status'] == 'DRAFT' || item['status'] == 'SENT',
+              (item) => item['status'] == 'DRAFT' || item['status'] == 'SENT',
             )
             .length;
         return SummaryGrid(
           items: [
-            SummaryItem('Teklif Tutarı', moneyText(total), Icons.summarize_outlined),
+            SummaryItem(
+              'Teklif Tutarı',
+              moneyText(total),
+              Icons.summarize_outlined,
+            ),
             SummaryItem('Açık Teklif', '$open', Icons.hourglass_bottom_rounded),
           ],
         );
@@ -387,9 +427,8 @@ class _QuotesPageState extends State<QuotesPage> {
 
   void _notify(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -423,12 +462,14 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
       searchText: (item) => '${item['number']} ${item['status']}',
       emptyIcon: Icons.receipt_long_outlined,
       emptyTitle: 'Gelen fatura yok',
-      emptyDescription: 'Tedarikçi faturasını elle girin veya e-faturadan çekin.',
+      emptyDescription:
+          'Tedarikçi faturasını elle girin veya e-faturadan çekin.',
       onCreate: (context) => showPurchaseInvoiceForm(context, widget.api),
       summaryBuilder: (items) {
         final total = items.fold<double>(
           0,
-          (sum, item) => sum + (double.tryParse('${item['gross_amount']}') ?? 0),
+          (sum, item) =>
+              sum + (double.tryParse('${item['gross_amount']}') ?? 0),
         );
         final unpaid = items
             .where((item) => item['payment_status'] != 'PAID')
@@ -439,7 +480,11 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
             );
         return SummaryGrid(
           items: [
-            SummaryItem('Toplam Alış', moneyText(total), Icons.receipt_long_outlined),
+            SummaryItem(
+              'Toplam Alış',
+              moneyText(total),
+              Icons.receipt_long_outlined,
+            ),
             SummaryItem('Ödenecek', moneyText(unpaid), Icons.schedule_rounded),
           ],
         );
@@ -449,8 +494,7 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
         return DataRowCard(
           icon: Icons.receipt_long_outlined,
           title: item['number']?.toString() ?? 'Taslak Alış Faturası',
-          subtitle:
-              '${dateText(item['issue_date'])} · ${statusLabel(status)}',
+          subtitle: '${dateText(item['issue_date'])} · ${statusLabel(status)}',
           value: moneyText(item['gross_amount']),
           valueSubtitle: statusLabel(item['payment_status']?.toString()),
           status: status,
@@ -464,66 +508,18 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
     BuildContext context,
     Map<String, dynamic> invoice,
   ) async {
-    final status = invoice['status']?.toString() ?? 'DRAFT';
-    final canPost = status != 'POSTED' && status != 'CANCELLED';
-    final messenger = ScaffoldMessenger.of(context);
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: FinkitColors.canvas,
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              invoice['number']?.toString() ?? 'Gelen Fatura',
-              style: Theme.of(sheetContext).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            AccountingRows(
-              rows: [
-                ('Durum', statusLabel(status)),
-                ('Tarih', dateText(invoice['issue_date'])),
-                ('Vade', dateText(invoice['due_date'])),
-                ('Net', moneyText(invoice['net_amount'])),
-                ('KDV', moneyText(invoice['vat_amount'])),
-                ('Genel toplam', moneyText(invoice['gross_amount'])),
-                ('Ödenen', moneyText(invoice['paid_amount'])),
-              ],
-            ),
-            if (canPost) ...[
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => Navigator.pop(sheetContext, 'POST'),
-                  icon: const Icon(Icons.check_circle_outline, size: 18),
-                  label: const Text('Faturayı Kaydet (Cari + Stok)'),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-    if (action == null || !mounted) return;
-    try {
-      await widget.api.postPurchaseInvoice(int.parse('${invoice['id']}'));
-      setState(() => _localRefresh++);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Gelen fatura kaydedildi')),
-      );
-    } catch (error) {
-      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
-    }
+    await openInvoiceDetail(context, widget.api, invoice, purchase: true);
+    if (mounted) setState(() => _localRefresh++);
   }
 }
 
 /// İade faturaları.
 class SalesReturnsPage extends StatelessWidget {
-  const SalesReturnsPage({super.key, required this.api, required this.refreshKey});
+  const SalesReturnsPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
 
   final FinkitApi api;
   final int refreshKey;
@@ -550,6 +546,7 @@ class SalesReturnsPage extends StatelessWidget {
         value: moneyText(item['gross_amount']),
         valueSubtitle: statusLabel(item['payment_status']?.toString()),
         status: item['status']?.toString(),
+        onTap: () => openInvoiceDetail(context, api, item),
       ),
     );
   }
@@ -587,17 +584,14 @@ class _EmployeesPageState extends State<EmployeesPage> {
       summaryBuilder: (items) {
         final cost = items.fold<double>(
           0,
-          (sum, item) => sum + (double.tryParse('${item['gross_salary']}') ?? 0),
+          (sum, item) =>
+              sum + (double.tryParse('${item['gross_salary']}') ?? 0),
         );
         final active = items.where((item) => item['status'] == 'ACTIVE').length;
         return SummaryGrid(
           items: [
             SummaryItem('Aktif Çalışan', '$active', Icons.badge_outlined),
-            SummaryItem(
-              'Aylık Brüt',
-              moneyText(cost),
-              Icons.payments_outlined,
-            ),
+            SummaryItem('Aylık Brüt', moneyText(cost), Icons.payments_outlined),
           ],
         );
       },
@@ -660,14 +654,22 @@ class _EmployeesPageState extends State<EmployeesPage> {
     );
     if (action != 'ADVANCE') return;
     if (!context.mounted) return;
-    final created = await showEmployeeAdvanceForm(context, widget.api, employee);
+    final created = await showEmployeeAdvanceForm(
+      context,
+      widget.api,
+      employee,
+    );
     if (created && mounted) setState(() => _localRefresh++);
   }
 }
 
 /// Çek ve senet portföyü.
 class ChecksNotesPage extends StatefulWidget {
-  const ChecksNotesPage({super.key, required this.api, required this.refreshKey});
+  const ChecksNotesPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
 
   final FinkitApi api;
   final int refreshKey;
@@ -709,8 +711,16 @@ class _ChecksNotesPageState extends State<ChecksNotesPage> {
             );
         return SummaryGrid(
           items: [
-            SummaryItem('Alınan', moneyText(incoming), Icons.call_received_rounded),
-            SummaryItem('Verilen', moneyText(outgoing), Icons.call_made_rounded),
+            SummaryItem(
+              'Alınan',
+              moneyText(incoming),
+              Icons.call_received_rounded,
+            ),
+            SummaryItem(
+              'Verilen',
+              moneyText(outgoing),
+              Icons.call_made_rounded,
+            ),
           ],
         );
       },
@@ -755,7 +765,10 @@ class _ChecksNotesPageState extends State<ChecksNotesPage> {
               rows: [
                 ('Yön', isIncoming ? 'Alınan' : 'Verilen'),
                 ('Durum', statusLabel(instrument['status']?.toString())),
-                ('Keşide/Lehtar', '${instrument['received_from'] ?? instrument['given_to'] ?? '-'}'),
+                (
+                  'Keşide/Lehtar',
+                  '${instrument['received_from'] ?? instrument['given_to'] ?? '-'}',
+                ),
                 ('Vade', dateText(instrument['due_date'])),
                 ('Tutar', moneyText(instrument['amount'])),
                 ('Banka', '${instrument['bank_name'] ?? '-'}'),
@@ -812,7 +825,11 @@ class _ChecksNotesPageState extends State<ChecksNotesPage> {
 
 /// Tahsilatlar.
 class CollectionsPage extends StatelessWidget {
-  const CollectionsPage({super.key, required this.api, required this.refreshKey});
+  const CollectionsPage({
+    super.key,
+    required this.api,
+    required this.refreshKey,
+  });
 
   final FinkitApi api;
   final int refreshKey;
@@ -841,8 +858,16 @@ class CollectionsPage extends StatelessWidget {
             );
         return SummaryGrid(
           items: [
-            SummaryItem('Tahsil Edilen', moneyText(total), Icons.savings_outlined),
-            SummaryItem('Avans', moneyText(open), Icons.account_balance_wallet_outlined),
+            SummaryItem(
+              'Tahsil Edilen',
+              moneyText(total),
+              Icons.savings_outlined,
+            ),
+            SummaryItem(
+              'Avans',
+              moneyText(open),
+              Icons.account_balance_wallet_outlined,
+            ),
           ],
         );
       },
@@ -897,7 +922,11 @@ class _SupplierPaymentsPageState extends State<SupplierPaymentsPage> {
         return SummaryGrid(
           items: [
             SummaryItem('Ödenen', moneyText(total), Icons.payments_outlined),
-            SummaryItem('Kayıt', '${items.length}', Icons.receipt_long_outlined),
+            SummaryItem(
+              'Kayıt',
+              '${items.length}',
+              Icons.receipt_long_outlined,
+            ),
           ],
         );
       },
@@ -952,8 +981,16 @@ class _FinancialAccountsPageState extends State<FinancialAccountsPage> {
         );
         return SummaryGrid(
           items: [
-            SummaryItem('Toplam Bakiye', moneyText(balance), Icons.savings_outlined),
-            SummaryItem('Hesap', '${items.length}', Icons.account_balance_outlined),
+            SummaryItem(
+              'Toplam Bakiye',
+              moneyText(balance),
+              Icons.savings_outlined,
+            ),
+            SummaryItem(
+              'Hesap',
+              '${items.length}',
+              Icons.account_balance_outlined,
+            ),
           ],
         );
       },
@@ -1005,11 +1042,14 @@ class AccountingRows extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Text(
-                    rows[index].$2,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
+                  Flexible(
+                    child: Text(
+                      rows[index].$2,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                 ],
@@ -1029,25 +1069,18 @@ Future<void> showAccountingDetailSheet(
   BuildContext context, {
   required String title,
   required List<(String, String)> rows,
-}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    backgroundColor: FinkitColors.canvas,
-    builder: (sheetContext) => Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(sheetContext).textTheme.titleLarge),
-          const SizedBox(height: 14),
-          AccountingRows(rows: rows),
-        ],
+}) => Navigator.of(context).push<void>(
+  MaterialPageRoute(
+    builder: (_) => Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      appBar: AppBar(title: Text(title)),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [AccountingRows(rows: rows)],
       ),
     ),
-  );
-}
+  ),
+);
 
 /// Ondalık sayıyı gereksiz sıfırlar olmadan gösterir.
 String _trimNumber(dynamic value) {
@@ -1123,9 +1156,8 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
       _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -1135,9 +1167,8 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
       _load();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -1176,8 +1207,7 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
             children: [
               const PageTitle(
                 title: 'Hatırlatma Kuralları',
-                subtitle:
-                    'Vadesi yaklaşan ödemeler için otomatik SMS veya e-posta hatırlatması.',
+                subtitle: 'Vadesi yaklaşan ödemeler için otomatik SMS veya e-posta hatırlatması.',
               ),
               SurfaceCard(
                 dark: true,
@@ -1213,7 +1243,9 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Icon(Icons.send_rounded, size: 18),
                         label: Text(

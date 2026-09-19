@@ -11,6 +11,7 @@ import 'chat_page.dart';
 import 'data_pages.dart';
 import 'entry_forms.dart';
 import 'more_pages.dart';
+import 'electronic_invoice_page.dart';
 
 /// Rapor listesi ve detayını birlikte açan sarmalayıcı ekran.
 class DashboardReportsPage extends StatelessWidget {
@@ -845,6 +846,9 @@ class EInvoiceListPage extends StatelessWidget {
               loader: isClient
                   ? api.clientEinvoiceInvoices
                   : api.einvoiceInvoices,
+              searchHint: 'Fatura, firma veya belge numarası ara',
+              searchText: (item) =>
+                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']}',
               emptyIcon: Icons.upload_file_outlined,
               emptyTitle: 'Giden belge yok',
               emptyDescription: 'Gönderilmiş e-fatura bulunmuyor.',
@@ -860,6 +864,16 @@ class EInvoiceListPage extends StatelessWidget {
                   item['total'] ?? item['amount'] ?? item['payable_amount'],
                 ),
                 status: item['status']?.toString(),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ElectronicInvoicePage(
+                      api: api,
+                      invoice: item,
+                      isClient: isClient,
+                      incoming: false,
+                    ),
+                  ),
+                ),
               ),
             ),
             ApiListPage(
@@ -867,6 +881,9 @@ class EInvoiceListPage extends StatelessWidget {
               subtitle: 'Size kesilen e-faturalar ve yanıt bekleyenler.',
               refreshKey: refreshKey,
               loader: isClient ? api.clientEinvoiceInbox : api.einvoiceInbox,
+              searchHint: 'Fatura, firma veya belge numarası ara',
+              searchText: (item) =>
+                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']}',
               emptyIcon: Icons.move_to_inbox_outlined,
               emptyTitle: 'Gelen belge yok',
               emptyDescription: 'Gelen kutusunda belge bulunmuyor.',
@@ -883,6 +900,16 @@ class EInvoiceListPage extends StatelessWidget {
                     '${_text(item['sender_name'] ?? item['supplier_name'] ?? item['status'], '')} · ${dateText(item['issue_date'] ?? item['created_at'])}',
                 value: moneyText(item['total'] ?? item['amount']),
                 status: item['status']?.toString(),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ElectronicInvoicePage(
+                      api: api,
+                      invoice: item,
+                      isClient: isClient,
+                      incoming: true,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -1011,10 +1038,10 @@ class _CalendarListPageState extends State<CalendarListPage> {
                   style: Theme.of(sheetContext).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 4),
-              Text(
-                'Etkinlikten bir gün önce ve 15 dakika önce bildirim gönderilir.',
-                style: Theme.of(sheetContext).textTheme.bodySmall,
-              ),
+                Text(
+                  'Etkinlikten bir gün önce ve 15 dakika önce bildirim gönderilir.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: title,
@@ -1100,10 +1127,9 @@ class _CalendarListPageState extends State<CalendarListPage> {
                                   title: 'Hatırlatıcı: $text',
                                   body:
                                       'Yarın ${dateText(when)} tarihinde etkinliğiniz var.',
-                                  id:
-                                      when.millisecondsSinceEpoch.remainder(
-                                        100000,
-                                      ),
+                                  id: when.millisecondsSinceEpoch.remainder(
+                                    100000,
+                                  ),
                                 );
                               }
                               final fifteenBefore = when.subtract(

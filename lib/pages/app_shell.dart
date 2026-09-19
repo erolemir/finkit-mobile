@@ -39,6 +39,41 @@ class FinkitShell extends StatefulWidget {
 
 class _FinkitShellState extends State<FinkitShell> {
   int _index = 0;
+  final List<int> _tabHistory = [];
+
+  void _selectTab(int index) {
+    if (index == _index) return;
+    setState(() {
+      _tabHistory.add(_index);
+      _index = index;
+    });
+  }
+
+  void _goBack() => setState(() {
+    _index = _tabHistory.isEmpty ? 0 : _tabHistory.removeLast();
+  });
+
+  void _openSales() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => _wrapPage(
+        'Satış Faturaları',
+        SalesPage(
+          api: widget.api,
+          refreshKey: _refreshKey,
+          onQuickAction: _showQuickActions,
+        ),
+      ),
+    ),
+  );
+
+  void _openCash() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => _wrapPage(
+        'Kasa ve Banka',
+        CashPage(api: widget.api, refreshKey: _refreshKey),
+      ),
+    ),
+  );
   int _refreshKey = 0;
   String _userName = '';
   String _companyName = '';
@@ -52,11 +87,7 @@ class _FinkitShellState extends State<FinkitShell> {
   @override
   void initState() {
     super.initState();
-    // Alt gezinme çubuğu gizli kalsın (durum çubuğu görünür).
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: [SystemUiOverlay.top],
-    );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _loadIdentity();
     _notificationEvents = AppNotifications.instance.events.listen((event) {
       if (!mounted) return;
@@ -761,10 +792,21 @@ class _FinkitShellState extends State<FinkitShell> {
     );
 
     return [
-      sales,
-      expenseSection,
-      cash,
-      reports,
+      for (final section in [sales, expenseSection, cash])
+        MenuSection(
+          title: section.title,
+          entries: section.entries
+              .where((e) => !e.title.contains('Rapor'))
+              .toList(),
+        ),
+      MenuSection(
+        title: 'Raporlar',
+        entries: [
+          ...reports.entries,
+          for (final section in [sales, expenseSection, cash])
+            ...section.entries.where((e) => e.title.contains('Rapor')),
+        ],
+      ),
       if (!_isClient) advisorTools,
       documents,
       communication,
@@ -821,7 +863,7 @@ class _FinkitShellState extends State<FinkitShell> {
         api: widget.api,
         onSales: () {
           Navigator.pop(sheetContext);
-          setState(() => _index = 1);
+          _openSales();
         },
         onInvoice: () async {
           Navigator.pop(sheetContext);
@@ -913,9 +955,9 @@ class _FinkitShellState extends State<FinkitShell> {
           return DashboardPage(
             api: widget.api,
             refreshKey: _refreshKey,
-            onOpenSales: () => setState(() => _index = 1),
+            onOpenSales: _openSales,
             onOpenExpenses: _openExpenses,
-            onOpenCash: () => setState(() => _index = 2),
+            onOpenCash: _openCash,
             onOpenReports: _openReports,
           );
       }
@@ -933,9 +975,9 @@ class _FinkitShellState extends State<FinkitShell> {
         return DashboardPage(
           api: widget.api,
           refreshKey: _refreshKey,
-          onOpenSales: () => setState(() => _index = 1),
+          onOpenSales: _openSales,
           onOpenExpenses: _openExpenses,
-          onOpenCash: () => setState(() => _index = 2),
+          onOpenCash: _openCash,
           onOpenReports: _openReports,
         );
     }
@@ -943,34 +985,41 @@ class _FinkitShellState extends State<FinkitShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FinkitColors.canvas,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: [
-            _Topbar(
-              demoMode: widget.api.demoMode,
-              userName: _userName,
-              companyName: _companyName,
-              unread: _unreadNotifications,
-              onNotifications: _openNotifications,
-              onRefresh: _refresh,
-              onMenu: () => setState(() => _index = 3),
-            ),
-            if (_maintenanceNoticeText != null)
-              _MaintenanceStrip(text: _maintenanceNoticeText!),
-            Expanded(child: _page()),
-          ],
+    return PopScope(
+      canPop: _index == 0 && _tabHistory.isEmpty,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        backgroundColor: FinkitColors.canvas,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              _Topbar(
+                demoMode: widget.api.demoMode,
+                userName: _userName,
+                companyName: _companyName,
+                unread: _unreadNotifications,
+                onNotifications: _openNotifications,
+                onRefresh: _refresh,
+                onMenu: () => _selectTab(3),
+                onBack: _index != 0 || _tabHistory.isNotEmpty ? _goBack : null,
+              ),
+              if (_maintenanceNoticeText != null)
+                _MaintenanceStrip(text: _maintenanceNoticeText!),
+              Expanded(child: _page()),
+            ],
+          ),
         ),
-      ),
-      bottomNavigationBar: _BottomNavigation(
-        index: _index,
-        onSelect: (value) => setState(() => _index = value),
-        onAdd: _showQuickActions,
-        labels: _isClient
-            ? const ['Özet', 'Ödemeler', 'Belgeler', 'Menü']
-            : const ['Özet', 'Faturalar', 'Kasa', 'Menü'],
+        bottomNavigationBar: _BottomNavigation(
+          index: _index,
+          onSelect: _selectTab,
+          onAdd: _showQuickActions,
+          labels: _isClient
+              ? const ['Özet', 'Ödemeler', 'Belgeler', 'Menü']
+              : const ['Özet', 'Faturalar', 'Kasa', 'Menü'],
+        ),
       ),
     );
   }
@@ -1023,6 +1072,7 @@ class _Topbar extends StatelessWidget {
     required this.onNotifications,
     required this.onRefresh,
     required this.onMenu,
+    this.onBack,
   });
 
   final bool demoMode;
@@ -1032,6 +1082,7 @@ class _Topbar extends StatelessWidget {
   final VoidCallback onNotifications;
   final VoidCallback onRefresh;
   final VoidCallback onMenu;
+  final VoidCallback? onBack;
 
   /// "Musavir İsmi" -> "Mİ"; boşsa Finkit logosu kullanılır.
   String get _initials {
@@ -1063,6 +1114,7 @@ class _Topbar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (onBack != null) BackButton(onPressed: onBack),
           InkWell(
             onTap: onMenu,
             borderRadius: BorderRadius.circular(16),

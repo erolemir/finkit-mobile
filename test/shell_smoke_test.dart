@@ -1,3 +1,4 @@
+import 'package:finkit_mobile/pages/menu_page.dart';
 // Uygulama kabuğunun demo verisiyle hatasız çizildiğini ve sekmelerin
 // gezilebildiğini doğrulayan arayüz smoke testi (ağ erişimi gerektirmez).
 import 'package:finkit_mobile/api_client.dart';
@@ -9,23 +10,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Menüdeki bir özelliği görünür alana getirip açar.
 Future<void> openMenuEntry(WidgetTester tester, String label) async {
-  final finder = find.text(label);
+  await tester.enterText(find.byType(TextField).first, label);
+  await tester.pumpAndSettle();
+  final finder = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == label));
   await tester.dragUntilVisible(
     finder,
     find.byType(ListView).first,
-    const Offset(0, -160),
+    const Offset(0, -100),
   );
+  await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
-  // Alt menü çubuğunun üstünde kalması için gerekirse biraz daha kaydır.
-  final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
-  final rect = tester.getRect(finder);
-  if (rect.bottom > screen.height - 150) {
-    await tester.drag(
-      find.byType(ListView).first,
-      Offset(0, -(rect.bottom - (screen.height - 170))),
-    );
-    await tester.pumpAndSettle();
-  }
   await tester.tap(finder);
   await tester.pumpAndSettle();
 }

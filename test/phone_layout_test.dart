@@ -1,3 +1,4 @@
+import 'package:finkit_mobile/pages/menu_page.dart';
 // Küçük telefon ekranlarında (360x640) tüm sayfaların taşmadan açıldığını
 // doğrular. Demo verisi kullanıldığı için ağ erişimi gerekmez.
 import 'package:finkit_mobile/api_client.dart';
@@ -89,13 +90,22 @@ void main() {
       'Bildirimler',
       'Ayarlar',
     ]) {
-      await tester.dragUntilVisible(
-        find.text(page),
-        find.byType(ListView).first,
-        const Offset(0, -160),
+      expect(
+        find.byType(TextField),
+        findsWidgets,
+        reason: '$page öncesi menüye dönülmüş olmalı',
       );
+      await tester.enterText(find.byType(TextField).first, page);
       await tester.pumpAndSettle();
-      await tester.tap(find.text(page));
+      final menuItem = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == page));
+      await tester.dragUntilVisible(
+        menuItem,
+        find.byType(ListView).first,
+        const Offset(0, -100),
+      );
+      await tester.ensureVisible(menuItem);
+      await tester.pumpAndSettle();
+      await tester.tap(menuItem);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: '$page açılmalı');
       await tester.tap(find.byType(BackButton).first);

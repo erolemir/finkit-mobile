@@ -1,3 +1,4 @@
+import 'package:finkit_mobile/pages/menu_page.dart';
 // Mükellef (CLIENT) menüsündeki tüm ekranların küçük ekranda taşmadan
 // açıldığını doğrular; mükellefin muhasebe modülüne erişebildiğini gösterir.
 import 'package:finkit_mobile/api_client.dart';
@@ -76,13 +77,17 @@ void main() {
       'Bildirimler',
       'Ayarlar',
     ]) {
-      await tester.dragUntilVisible(
-        find.text(page).first,
-        find.byType(ListView).first,
-        const Offset(0, -160),
-      );
+      await tester.enterText(find.byType(TextField).first, page);
       await tester.pumpAndSettle();
-      await tester.tap(find.text(page).first);
+      final menuItem = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == page));
+      await tester.dragUntilVisible(
+        menuItem,
+        find.byType(ListView).first,
+        const Offset(0, -100),
+      );
+      await tester.ensureVisible(menuItem);
+      await tester.pumpAndSettle();
+      await tester.tap(menuItem);
       await tester.pumpAndSettle();
       expect(
         tester.takeException(),

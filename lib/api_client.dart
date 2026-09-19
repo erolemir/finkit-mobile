@@ -484,6 +484,16 @@ class FinkitApi {
     ],
   });
 
+  Future<Map<String, dynamic>> purchaseInvoice(int invoiceId) =>
+      _get('/accounting/purchase-invoices/$invoiceId');
+
+  Future<Map<String, dynamic>> matchPurchaseSupplier(
+    int invoiceId,
+    int supplierId,
+  ) => _patch('/accounting/purchase-invoices/$invoiceId/supplier', {
+    'supplier_id': supplierId,
+  });
+
   Future<Map<String, dynamic>> postPurchaseInvoice(int invoiceId) =>
       _post('/accounting/purchase-invoices/$invoiceId/post', const {});
 
@@ -783,6 +793,33 @@ class FinkitApi {
       _list('/extra-charges/my');
 
   // ── E-Fatura ───────────────────────────────────────────────
+  Future<String> electronicInvoiceHtml(
+    String id, {
+    required bool isClient,
+    required bool incoming,
+  }) async {
+    if (demoMode) {
+      return '<html><body><h1>Demo Fatura</h1><p>Danışmanlık hizmeti</p></body></html>';
+    }
+    final prefix = isClient ? 'client-einvoice' : 'einvoice';
+    final collection = incoming ? 'inbox' : 'invoices';
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse(
+          '$baseUrl/$prefix/$collection/${Uri.encodeComponent(id)}/content/html',
+        ),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Belge görüntülenemedi',
+        response.statusCode,
+      );
+    }
+    return utf8.decode(response.bodyBytes);
+  }
+
   Future<Map<String, dynamic>> einvoiceAccount() => _get('/einvoice/account');
 
   Future<List<Map<String, dynamic>>> einvoiceInvoices() =>
@@ -1280,6 +1317,36 @@ class FinkitApi {
 
 class DemoData {
   static Map<String, dynamic> get(String path) {
+    final detail = RegExp(
+      r'^/accounting/(sales-invoices|purchase-invoices|partners)/(\d+)$',
+    ).firstMatch(path);
+    if (detail != null) {
+      final items = get('/accounting/${detail[1]}')['items'] as List;
+      final item = Map<String, dynamic>.from(
+        items.firstWhere((i) => '${i['id']}' == detail[2]),
+      );
+      if (detail[1] != 'partners') {
+        final total = num.tryParse('${item['gross_amount']}') ?? 0;
+        item.addAll({
+          'currency': 'TRY',
+          'net_amount': total / 1.2,
+          'vat_amount': total - total / 1.2,
+          'paid_amount': item['payment_status'] == 'PAID' ? total : 0,
+          'lines': [
+            {
+              'description': 'Danışmanlık hizmeti',
+              'quantity': 1,
+              'unit': 'ADET',
+              'unit_price': total / 1.2,
+              'vat_rate': 20,
+              'line_vat': total - total / 1.2,
+              'line_total': total,
+            },
+          ],
+        });
+      }
+      return item;
+    }
     if (path.contains('/reports/summary')) {
       return {
         'summary': {

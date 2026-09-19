@@ -6,6 +6,7 @@ import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'entry_forms.dart';
+import 'invoice_detail_page.dart';
 
 class SalesPage extends StatefulWidget {
   const SalesPage({
@@ -25,6 +26,7 @@ class SalesPage extends StatefulWidget {
 
 class _SalesPageState extends State<SalesPage> {
   String _filter = 'Tümü';
+  String _search = '';
   Future<List<Map<String, dynamic>>>? _future;
   Future<List<Map<String, dynamic>>>? _partnersFuture;
 
@@ -76,6 +78,12 @@ class _SalesPageState extends State<SalesPage> {
                 partnerSnapshot.data ?? const <Map<String, dynamic>>[];
             final all = salesSnapshot.data ?? const <Map<String, dynamic>>[];
             final items = all.where((invoice) {
+              if (!'${invoice['number']} ${_partnerName(partners, invoice['partner_id'])}'
+                  .toLowerCase()
+                  .replaceAll('ı', 'i')
+                  .contains(_search)) {
+                return false;
+              }
               final payment = invoice['payment_status']?.toString() ?? '';
               return switch (_filter) {
                 'Ödenen' => payment == 'PAID',
@@ -128,6 +136,16 @@ class _SalesPageState extends State<SalesPage> {
                       ),
                     ],
                   ),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: 'Fatura veya müşteri ara',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                    onChanged: (value) => setState(
+                      () => _search = value.toLowerCase().replaceAll('ı', 'i'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   FilterRow(
                     items: const ['Tümü', 'Ödenen', 'Bekleyen', 'Geciken'],
                     selected: _filter,
@@ -154,18 +172,14 @@ class _SalesPageState extends State<SalesPage> {
                           valueSubtitle:
                               'Vade ${dateText(invoice['due_date'])}',
                           status: invoice['payment_status']?.toString(),
-                          onTap: () => showModalBottomSheet<void>(
-                            context: context,
-                            showDragHandle: true,
-                            backgroundColor: FinkitColors.canvas,
-                            builder: (_) => InvoiceDetailSheet(
-                              invoice: invoice,
-                              partnerName: _partnerName(
-                                partners,
-                                invoice['partner_id'],
-                              ),
-                            ),
-                          ),
+                          onTap: () async {
+                            await openInvoiceDetail(
+                              context,
+                              widget.api,
+                              invoice,
+                            );
+                            if (mounted) setState(_load);
+                          },
                         ),
                       ),
                     ),
@@ -294,6 +308,15 @@ class _ExpensesPageState extends State<ExpensesPage> {
                               'Tedarikçi · ${dateText(invoice['issue_date'])}',
                           value: moneyText(invoice['gross_amount']),
                           status: invoice['payment_status']?.toString(),
+                          onTap: () async {
+                            await openInvoiceDetail(
+                              context,
+                              widget.api,
+                              invoice,
+                              purchase: true,
+                            );
+                            if (mounted) setState(_load);
+                          },
                         ),
                       ),
                     ),
@@ -1018,61 +1041,6 @@ class FilterRow extends StatelessWidget {
             onSelected: (_) => onSelected(item),
           );
         },
-      ),
-    );
-  }
-}
-
-class InvoiceDetailSheet extends StatelessWidget {
-  const InvoiceDetailSheet({
-    super.key,
-    required this.invoice,
-    required this.partnerName,
-  });
-
-  final Map<String, dynamic> invoice;
-  final String partnerName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            invoice['number']?.toString() ?? 'Fatura Detayı',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 18),
-          _DetailLine('Müşteri', partnerName),
-          _DetailLine('Tarih', dateText(invoice['issue_date'])),
-          _DetailLine('Vade', dateText(invoice['due_date'])),
-          _DetailLine('Durum', statusLabel(invoice['status']?.toString())),
-          _DetailLine(
-            'Ödeme',
-            statusLabel(invoice['payment_status']?.toString()),
-          ),
-          const Divider(height: 28),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Genel Toplam',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-              Text(
-                moneyText(invoice['gross_amount']),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 18,
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }

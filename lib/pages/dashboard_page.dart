@@ -1,3 +1,5 @@
+import 'invoice_detail_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../api_client.dart';
@@ -277,6 +279,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           value: '+${moneyText(invoice['gross_amount'])}',
                           positive: true,
                           status: invoice['payment_status']?.toString(),
+                          onTap: () =>
+                              openInvoiceDetail(context, widget.api, invoice),
                         ),
                       ),
                     ),
