@@ -1,6 +1,7 @@
 /// 81 il ve illere gore ilce adlari.
 ///
 /// Web tarafindaki `src/lib/turkeyLocations.ts` ile ayni veri; elle degistirilmemeli.
+library;
 
 const List<String> turkeyProvinces = <String>[
   'Adana',

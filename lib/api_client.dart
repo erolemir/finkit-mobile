@@ -197,11 +197,7 @@ class FinkitApi {
     String? status,
   }) => _list(
     '/accounting/sales-invoices',
-    query: {
-      'page_size': '100',
-      'invoice_type': ?type,
-      'status': ?status,
-    },
+    query: {'page_size': '100', 'invoice_type': ?type, 'status': ?status},
   );
 
   Future<List<Map<String, dynamic>>> purchaseInvoices({
@@ -209,11 +205,7 @@ class FinkitApi {
     String? status,
   }) => _list(
     '/accounting/purchase-invoices',
-    query: {
-      'page_size': '100',
-      'invoice_type': ?type,
-      'status': ?status,
-    },
+    query: {'page_size': '100', 'invoice_type': ?type, 'status': ?status},
   );
 
   Future<List<Map<String, dynamic>>> expenses() =>
@@ -233,9 +225,18 @@ class FinkitApi {
   Future<Map<String, dynamic>> report(
     String report, {
     String basis = 'accrual',
+    String? startDate,
+    String? endDate,
   }) => _get(
     '/accounting/reports/$report',
-    query: report == 'income-expense' ? {'basis': basis} : null,
+    query: {
+      if (report == 'income-expense') 'basis': basis,
+      if (report == 'aging') 'as_of': ?endDate,
+      if (report != 'stock' && report != 'aging') ...{
+        'start_date': ?startDate,
+        'end_date': ?endDate,
+      },
+    },
   );
 
   Future<Map<String, dynamic>> createExpense({
@@ -372,9 +373,7 @@ class FinkitApi {
   Future<List<Map<String, dynamic>>> stockBalances({int? warehouseId}) =>
       _listAny(
         '/accounting/stock/balances',
-        query: {
-          if (warehouseId != null) 'warehouse_id': '$warehouseId',
-        },
+        query: {if (warehouseId != null) 'warehouse_id': '$warehouseId'},
       );
 
   Future<List<Map<String, dynamic>>> stockMovements() =>
@@ -413,10 +412,7 @@ class FinkitApi {
   // ── Teklifler ──────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> quotes({String? status}) => _list(
     '/accounting/quotes',
-    query: {
-      'page_size': '100',
-      'status': ?status,
-    },
+    query: {'page_size': '100', 'status': ?status},
   );
 
   Future<Map<String, dynamic>> createQuote({
@@ -497,10 +493,7 @@ class FinkitApi {
   Future<Map<String, dynamic>> createExpenseCategory({
     required String name,
     String? code,
-  }) => _post('/accounting/expense-categories', {
-    'name': name,
-    'code': ?code,
-  });
+  }) => _post('/accounting/expense-categories', {'name': name, 'code': ?code});
 
   // ── Tahsilat / ödeme ───────────────────────────────────────
   Future<List<Map<String, dynamic>>> collections() =>
@@ -542,10 +535,7 @@ class FinkitApi {
   // ── Çek ve senetler ────────────────────────────────────────
   Future<List<Map<String, dynamic>>> checksNotes({String? direction}) => _list(
     '/accounting/checks-notes',
-    query: {
-      'page_size': '100',
-      'direction': ?direction,
-    },
+    query: {'page_size': '100', 'direction': ?direction},
   );
 
   Future<Map<String, dynamic>> createCheckNote({
@@ -1130,13 +1120,17 @@ class FinkitApi {
           .toList();
     }
     final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
-    final response = await _authorized(() => http.get(uri, headers: _headers()));
+    final response = await _authorized(
+      () => http.get(uri, headers: _headers()),
+    );
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (response.statusCode >= 400) {
       throw ApiException(
-        _detail(decoded is Map<String, dynamic>
-                ? decoded
-                : <String, dynamic>{'detail': decoded.toString()}) ??
+        _detail(
+              decoded is Map<String, dynamic>
+                  ? decoded
+                  : <String, dynamic>{'detail': decoded.toString()},
+            ) ??
             'Veri alınamadı',
         response.statusCode,
       );
@@ -1609,8 +1603,7 @@ class DemoData {
             'software_name': 'Finkit',
             'revision_number': 'v1.1',
             'revision_date': '2026-06-15',
-            'summary':
-                'Belge indirme akışı iyileştirildi.\nBakım modu ve planlı bakım bildirimi eklendi.',
+            'summary': 'Belge indirme akışı iyileştirildi.\nBakım modu ve planlı bakım bildirimi eklendi.',
             'health_status': 'OK',
             'hardware': 'Finkit bulut sunucuları (TR veri merkezi)',
             'maintenance_done': true,

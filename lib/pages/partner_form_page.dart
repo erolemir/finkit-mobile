@@ -5,6 +5,7 @@ import '../api_client.dart';
 import '../data/turkey_locations.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'form_layout.dart';
 
 /// Mobil "Yeni Cari Oluştur" ekranını açar. Kayıt oluşturulduysa `true` döner.
 Future<bool> showPartnerCreatePage(
@@ -320,11 +321,12 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(row.openingDate),
     );
+    if (!mounted) return;
     setState(() {
       row.openingDate = DateTime(
         picked.year,
@@ -346,7 +348,10 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
         .where((row) => row.iban.text.trim().isNotEmpty)
         .toList();
     final balances = _balances
-        .where((row) => (double.tryParse(row.amount.text.replaceAll(',', '.')) ?? 0) > 0)
+        .where(
+          (row) =>
+              (double.tryParse(row.amount.text.replaceAll(',', '.')) ?? 0) > 0,
+        )
         .toList();
 
     return <String, dynamic>{
@@ -413,11 +418,12 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
       'opening_balances': <Map<String, dynamic>>[
         for (var index = 0; index < balances.length; index++)
           <String, dynamic>{
-            'amount': (double.tryParse(
-                      balances[index].amount.text.replaceAll(',', '.'),
-                    ) ??
-                    0)
-                .toStringAsFixed(2),
+            'amount':
+                (double.tryParse(
+                          balances[index].amount.text.replaceAll(',', '.'),
+                        ) ??
+                        0)
+                    .toStringAsFixed(2),
             'currency': balances[index].currency,
             'direction': balances[index].direction,
             'opening_date': _dateValue(balances[index].openingDate),
@@ -429,7 +435,7 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
   }
 
   Future<void> _save() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_saving || !validateAndReveal(_formKey)) return;
     final validationError = _validate();
     if (validationError != null) {
       setState(() => _error = validationError);
@@ -462,7 +468,9 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
       appBar: AppBar(title: const Text('Yeni Cari Oluştur')),
       body: Form(
         key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
           children: [
             _FormSection(
@@ -497,9 +505,8 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
                     labelText: 'Cari Kodu',
                     prefixIcon: Icon(Icons.tag_rounded),
                   ),
-                  validator: (value) => (value ?? '').trim().isEmpty
-                      ? 'Cari kodu zorunlu'
-                      : null,
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? 'Cari kodu zorunlu' : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -563,7 +570,10 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Yeni Adres', style: TextStyle(fontSize: 12.5)),
+                label: const Text(
+                  'Yeni Adres',
+                  style: TextStyle(fontSize: 12.5),
+                ),
               ),
               children: [
                 Row(
@@ -671,7 +681,9 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
-                        initialValue: address.city.isEmpty ? null : address.city,
+                        initialValue: address.city.isEmpty
+                            ? null
+                            : address.city,
                         decoration: const InputDecoration(labelText: 'İl'),
                         items: [
                           for (final province in turkeyProvinces)
@@ -693,7 +705,8 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
                         )
                       else
                         DropdownButtonFormField<String>(
-                          initialValue: districts.contains(address.district.text)
+                          initialValue:
+                              districts.contains(address.district.text)
                               ? address.district.text
                               : null,
                           decoration: const InputDecoration(labelText: 'İlçe'),
@@ -742,8 +755,7 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
               title: 'Yetkili Bilgileri',
               action: _CircleAddButton(
                 tooltip: 'Yetkili ekle',
-                onPressed: () =>
-                    setState(() => _contacts.add(_ContactDraft())),
+                onPressed: () => setState(() => _contacts.add(_ContactDraft())),
               ),
               children: [
                 for (var index = 0; index < _contacts.length; index++) ...[
@@ -829,8 +841,9 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
               title: 'Bakiye Bilgileri',
               action: _CircleAddButton(
                 tooltip: 'Bakiye ekle',
-                onPressed: () =>
-                    setState(() => _balances.add(_BalanceDraft(isDefault: false))),
+                onPressed: () => setState(
+                  () => _balances.add(_BalanceDraft(isDefault: false)),
+                ),
               ),
               children: [
                 for (var index = 0; index < _balances.length; index++) ...[
@@ -943,7 +956,9 @@ class _PartnerFormPageState extends State<PartnerFormPage> {
           children: [
             Expanded(
               child: OutlinedButton(
-                onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+                onPressed: _saving
+                    ? null
+                    : () => Navigator.of(context).pop(false),
                 child: const Text('Vazgeç'),
               ),
             ),
@@ -1001,10 +1016,11 @@ class _FormSection extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: Theme.of(context).textTheme.titleMedium
+                        ?.copyWith(color: FinkitColors.primary),
                   ),
                 ),
-                if (action != null) action!,
+                ?action,
               ],
             ),
             const SizedBox(height: 10),

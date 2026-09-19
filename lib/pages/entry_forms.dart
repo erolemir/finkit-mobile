@@ -4,8 +4,171 @@ import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'partner_form_page.dart';
+import 'form_layout.dart';
 
 const _vatRates = <double>[0, 1, 8, 10, 18, 20];
+
+String? _positiveAmount(String? value) {
+  final amount = double.tryParse((value ?? '').trim().replaceAll(',', '.'));
+  return amount == null || !amount.isFinite || amount <= 0
+      ? 'Sıfırdan büyük bir tutar girin (ör. 1250,50)'
+      : null;
+}
+
+Future<bool> showExpenseEntryForm(BuildContext context, FinkitApi api) async {
+  final description = TextEditingController();
+  final amount = TextEditingController();
+  var vatRate = 20.0;
+  final result = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (_) => _EntrySheet(
+      title: 'Gider Ekle',
+      subtitle:
+          'Net tutarı ve KDV oranını girin. Toplamı kontrol ederek kaydedin.',
+      onSave: () async {
+        await api.createExpense(
+          description: description.text.trim(),
+          netAmount: _number(amount.text),
+          vatRate: vatRate,
+        );
+      },
+      buildFields: (refresh) => [
+        TextFormField(
+          controller: description,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Açıklama',
+            hintText: 'Ör. Ofis malzemeleri',
+            prefixIcon: Icon(Icons.edit_note_rounded),
+          ),
+          validator: (v) => _requiredText(v, 'Açıklama gerekli'),
+        ),
+        const SizedBox(height: 14),
+        TextFormField(
+          controller: amount,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged: (_) => refresh(() {}),
+          decoration: const InputDecoration(
+            labelText: 'Net tutar',
+            hintText: '0,00',
+            suffixText: '₺',
+          ),
+          validator: _positiveAmount,
+        ),
+        const SizedBox(height: 14),
+        DropdownButtonFormField<double>(
+          initialValue: vatRate,
+          decoration: const InputDecoration(labelText: 'KDV oranı'),
+          items: _vatRates
+              .map(
+                (rate) => DropdownMenuItem(
+                  value: rate,
+                  child: Text('%${rate.toInt()}'),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => refresh(() => vatRate = v ?? 20),
+        ),
+        const SizedBox(height: 16),
+        _TotalsPreview(
+          net: _number(amount.text),
+          vat: _number(amount.text) * vatRate / 100,
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
+Future<bool> showCollectionEntryForm(
+  BuildContext context,
+  FinkitApi api,
+) async {
+  final partners = (await api.partners())
+      .where((p) => p['partner_type'] != 'SUPPLIER')
+      .toList();
+  final accounts = await api.accounts();
+  if (!context.mounted) return false;
+  if (partners.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Tahsilat için önce bir müşteri ekleyin.')),
+    );
+    return false;
+  }
+  final amount = TextEditingController();
+  int? partnerId;
+  int? accountId;
+  final result = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    backgroundColor: FinkitColors.canvas,
+    builder: (_) => _EntrySheet(
+      title: 'Tahsilat Al',
+      subtitle: 'Müşteriyi seçin ve tahsil edilen tutarı girin.',
+      saveLabel: 'Tahsilatı Kaydet',
+      onSave: () async {
+        await api.createCollection(
+          partnerId: partnerId!,
+          amount: _number(amount.text),
+          accountId: accountId,
+        );
+      },
+      buildFields: (refresh) => [
+        DropdownButtonFormField<int>(
+          initialValue: partnerId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Müşteri',
+            prefixIcon: Icon(Icons.person_outline_rounded),
+          ),
+          items: partners
+              .map(
+                (p) => DropdownMenuItem(
+                  value: p['id'] as int,
+                  child: Text('${p['name']}', overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+          validator: (v) => v == null ? 'Müşteri seçin' : null,
+          onChanged: (v) => refresh(() => partnerId = v),
+        ),
+        const SizedBox(height: 14),
+        DropdownButtonFormField<int>(
+          initialValue: accountId,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Kasa / Banka (opsiyonel)',
+          ),
+          items: accounts
+              .map(
+                (a) => DropdownMenuItem(
+                  value: a['id'] as int,
+                  child: Text('${a['name']}', overflow: TextOverflow.ellipsis),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => refresh(() => accountId = v),
+        ),
+        const SizedBox(height: 14),
+        TextFormField(
+          controller: amount,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Tahsilat tutarı',
+            hintText: '0,00',
+            suffixText: '₺',
+          ),
+          validator: _positiveAmount,
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
 
 /// Cari kartı oluşturma ekranını açar. Kayıt başarılıysa `true` döner.
 ///
@@ -63,283 +226,270 @@ Future<bool> showSalesInvoiceForm(
     showDragHandle: true,
     backgroundColor: FinkitColors.canvas,
     builder: (sheetContext) => StatefulBuilder(
-      builder: (sheetContext, setSheetState) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (sheetContext, setSheetState) => Form(
+        key: formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: EntryFormLayout(
+          title: type == 'IADE' ? 'Yeni İade Faturası' : 'Yeni Satış Faturası',
+          subtitle: 'Müşteriyi seçin, ürün ve tutarı girin. Taslak olarak saklayabilir veya faturayı kesinleştirebilirsiniz.',
+          saving: saving,
+          fields: [
+            const FormSectionLabel(
+              'Müşteri ve ürün',
+              icon: Icons.person_outline_rounded,
+            ),
+            DropdownButtonFormField<int>(
+              initialValue: partnerId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Müşteri',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+              items: customers
+                  .map(
+                    (partner) => DropdownMenuItem<int>(
+                      value: partner['id'] as int?,
+                      child: Text(
+                        partner['name']?.toString() ?? 'Müşteri',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) => setSheetState(() => partnerId = value),
+            ),
+            if (products.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int?>(
+                initialValue: productId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Ürün / Hizmet (opsiyonel)',
+                  prefixIcon: Icon(Icons.inventory_2_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Serbest satır'),
+                  ),
+                  ...products.map(
+                    (product) => DropdownMenuItem<int?>(
+                      value: product['id'] as int?,
+                      child: Text(
+                        product['name']?.toString() ?? 'Ürün',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => setSheetState(() {
+                  productId = value;
+                  final match = products
+                      .where((product) => product['id'] == value)
+                      .toList();
+                  if (match.isEmpty) return;
+                  final product = match.first;
+                  description.text =
+                      product['name']?.toString() ?? description.text;
+                  final price = product['sales_price'] ?? product['unit_price'];
+                  if (price != null) {
+                    unitPrice.text = '${double.tryParse('$price') ?? ''}';
+                  }
+                  final rate = double.tryParse('${product['vat_rate']}');
+                  if (rate != null) vatRate = rate;
+                }),
+              ),
+            ],
+            const SizedBox(height: 12),
+            TextFormField(
+              textInputAction: TextInputAction.next,
+              controller: description,
+              decoration: const InputDecoration(
+                labelText: 'Açıklama',
+                prefixIcon: Icon(Icons.notes_rounded),
+              ),
+              validator: (value) =>
+                  (value ?? '').trim().isEmpty ? 'Açıklama gerekli' : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
               children: [
-                Text(
-                  type == 'IADE' ? 'Yeni İade Faturası' : 'Yeni Satış Faturası',
-                  style: Theme.of(sheetContext).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Kesinleştirilen fatura cari borç, stok çıkışı ve KDV hareketini birlikte oluşturur.',
-                  style: Theme.of(sheetContext).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  initialValue: partnerId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Müşteri',
-                    prefixIcon: Icon(Icons.person_outline_rounded),
-                  ),
-                  items: customers
-                      .map(
-                        (partner) => DropdownMenuItem<int>(
-                          value: partner['id'] as int?,
-                          child: Text(
-                            partner['name']?.toString() ?? 'Müşteri',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setSheetState(() => partnerId = value),
-                ),
-                if (products.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<int?>(
-                    initialValue: productId,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Ürün / Hizmet (opsiyonel)',
-                      prefixIcon: Icon(Icons.inventory_2_outlined),
+                Expanded(
+                  child: TextFormField(
+                    textInputAction: TextInputAction.next,
+                    controller: quantity,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                    items: [
-                      const DropdownMenuItem<int?>(
-                        value: null,
-                        child: Text('Serbest satır'),
-                      ),
-                      ...products.map(
-                        (product) => DropdownMenuItem<int?>(
-                          value: product['id'] as int?,
-                          child: Text(
-                            product['name']?.toString() ?? 'Ürün',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) => setSheetState(() {
-                      productId = value;
-                      final match = products
-                          .where((product) => product['id'] == value)
-                          .toList();
-                      if (match.isEmpty) return;
-                      final product = match.first;
-                      description.text =
-                          product['name']?.toString() ?? description.text;
-                      final price =
-                          product['sales_price'] ?? product['unit_price'];
-                      if (price != null) {
-                        unitPrice.text = '${double.tryParse('$price') ?? ''}';
+                    onChanged: (_) => setSheetState(() {}),
+                    decoration: const InputDecoration(labelText: 'Miktar'),
+                    validator: (value) {
+                      final parsed = double.tryParse(
+                        (value ?? '').replaceAll(',', '.'),
+                      );
+                      if (parsed == null || parsed <= 0) {
+                        return 'Miktar > 0 olmalı';
                       }
-                      final rate = double.tryParse('${product['vat_rate']}');
-                      if (rate != null) vatRate = rate;
-                    }),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: description,
-                  decoration: const InputDecoration(
-                    labelText: 'Açıklama',
-                    prefixIcon: Icon(Icons.notes_rounded),
-                  ),
-                  validator: (value) =>
-                      (value ?? '').trim().isEmpty ? 'Açıklama gerekli' : null,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: quantity,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        onChanged: (_) => setSheetState(() {}),
-                        decoration: const InputDecoration(labelText: 'Miktar'),
-                        validator: (value) {
-                          final parsed = double.tryParse(
-                            (value ?? '').replaceAll(',', '.'),
-                          );
-                          if (parsed == null || parsed <= 0) {
-                            return 'Miktar > 0 olmalı';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextFormField(
-                        controller: unitPrice,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        onChanged: (_) => setSheetState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Birim Fiyat',
-                        ),
-                        validator: (value) {
-                          final parsed = double.tryParse(
-                            (value ?? '').replaceAll(',', '.'),
-                          );
-                          if (parsed == null || parsed < 0) {
-                            return 'Fiyat girin';
-                          }
-                          return null;
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<double>(
-                  initialValue: vatRate,
-                  decoration: const InputDecoration(
-                    labelText: 'KDV Oranı',
-                    prefixIcon: Icon(Icons.percent_rounded),
-                  ),
-                  items: _vatRates
-                      .map(
-                        (rate) => DropdownMenuItem<double>(
-                          value: rate,
-                          child: Text('%${rate.toStringAsFixed(0)}'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setSheetState(() => vatRate = value ?? vatRate),
-                ),
-                const SizedBox(height: 12),
-                _DateField(
-                  label: 'Fatura Tarihi',
-                  value: issueDate,
-                  onPick: () async {
-                    final picked = await showDatePicker(
-                      context: sheetContext,
-                      initialDate: issueDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) {
-                      setSheetState(() {
-                        issueDate = picked;
-                        if (dueDate.isBefore(issueDate)) {
-                          dueDate = issueDate.add(const Duration(days: 30));
-                        }
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                _DateField(
-                  label: 'Vade Tarihi',
-                  value: dueDate,
-                  onPick: () async {
-                    final picked = await showDatePicker(
-                      context: sheetContext,
-                      initialDate: dueDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (picked != null) {
-                      setSheetState(() => dueDate = picked);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: notes,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Not (opsiyonel)',
-                    prefixIcon: Icon(Icons.sticky_note_2_outlined),
+                      return null;
+                    },
                   ),
                 ),
-                const SizedBox(height: 14),
-                _TotalsPreview(net: net(), vat: vat()),
-                if (error != null) ...[
-                  const SizedBox(height: 12),
-                  _FormError(message: error!),
-                ],
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: saving
-                            ? null
-                            : () => _submitSalesInvoice(
-                                sheetContext: sheetContext,
-                                formKey: formKey,
-                                api: api,
-                                partnerId: partnerId,
-                                productId: productId,
-                                description: description.text.trim(),
-                                quantity: quantity.text,
-                                unitPrice: unitPrice.text,
-                                vatRate: vatRate,
-                                issueDate: issueDate,
-                                dueDate: dueDate,
-                                notes: notes.text.trim(),
-                                finalize: false,
-                                invoiceType: type,
-                                onState: (value, message) => setSheetState(() {
-                                  saving = value;
-                                  error = message;
-                                }),
-                              ),
-                        child: const Text('Taslak Kaydet'),
-                      ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    textInputAction: TextInputAction.next,
+                    controller: unitPrice,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: saving
-                            ? null
-                            : () => _submitSalesInvoice(
-                                sheetContext: sheetContext,
-                                formKey: formKey,
-                                api: api,
-                                partnerId: partnerId,
-                                productId: productId,
-                                description: description.text.trim(),
-                                quantity: quantity.text,
-                                unitPrice: unitPrice.text,
-                                vatRate: vatRate,
-                                issueDate: issueDate,
-                                dueDate: dueDate,
-                                notes: notes.text.trim(),
-                                finalize: true,
-                                invoiceType: type,
-                                onState: (value, message) => setSheetState(() {
-                                  saving = value;
-                                  error = message;
-                                }),
-                              ),
-                        child: saving
-                            ? const _ButtonSpinner(label: 'Kaydediliyor')
-                            : const Text('Kesinleştir'),
-                      ),
-                    ),
-                  ],
+                    onChanged: (_) => setSheetState(() {}),
+                    decoration: const InputDecoration(labelText: 'Birim Fiyat'),
+                    validator: (value) {
+                      final parsed = double.tryParse(
+                        (value ?? '').replaceAll(',', '.'),
+                      );
+                      if (parsed == null || parsed < 0) {
+                        return 'Fiyat girin';
+                      }
+                      return null;
+                    },
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<double>(
+              initialValue: vatRate,
+              decoration: const InputDecoration(
+                labelText: 'KDV Oranı',
+                prefixIcon: Icon(Icons.percent_rounded),
+              ),
+              items: _vatRates
+                  .map(
+                    (rate) => DropdownMenuItem<double>(
+                      value: rate,
+                      child: Text('%${rate.toStringAsFixed(0)}'),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) =>
+                  setSheetState(() => vatRate = value ?? vatRate),
+            ),
+            const SizedBox(height: 12),
+            _DateField(
+              label: 'Fatura Tarihi',
+              value: issueDate,
+              onPick: () async {
+                final picked = await showDatePicker(
+                  context: sheetContext,
+                  initialDate: issueDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) {
+                  setSheetState(() {
+                    issueDate = picked;
+                    if (dueDate.isBefore(issueDate)) {
+                      dueDate = issueDate.add(const Duration(days: 30));
+                    }
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            _DateField(
+              label: 'Vade Tarihi',
+              value: dueDate,
+              onPick: () async {
+                final picked = await showDatePicker(
+                  context: sheetContext,
+                  initialDate: dueDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2100),
+                );
+                if (picked != null) {
+                  setSheetState(() => dueDate = picked);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              textInputAction: TextInputAction.next,
+              controller: notes,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Not (opsiyonel)',
+                prefixIcon: Icon(Icons.sticky_note_2_outlined),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _TotalsPreview(net: net(), vat: vat()),
+            if (error != null) ...[
+              const SizedBox(height: 12),
+              _FormError(message: error!),
+            ],
+            const SizedBox(height: 16),
+          ],
+          footer: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: saving
+                      ? null
+                      : () => _submitSalesInvoice(
+                          sheetContext: sheetContext,
+                          formKey: formKey,
+                          api: api,
+                          partnerId: partnerId,
+                          productId: productId,
+                          description: description.text.trim(),
+                          quantity: quantity.text,
+                          unitPrice: unitPrice.text,
+                          vatRate: vatRate,
+                          issueDate: issueDate,
+                          dueDate: dueDate,
+                          notes: notes.text.trim(),
+                          finalize: false,
+                          invoiceType: type,
+                          onState: (value, message) => setSheetState(() {
+                            saving = value;
+                            error = message;
+                          }),
+                        ),
+                  child: const Text('Taslak Kaydet'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: saving
+                      ? null
+                      : () => _submitSalesInvoice(
+                          sheetContext: sheetContext,
+                          formKey: formKey,
+                          api: api,
+                          partnerId: partnerId,
+                          productId: productId,
+                          description: description.text.trim(),
+                          quantity: quantity.text,
+                          unitPrice: unitPrice.text,
+                          vatRate: vatRate,
+                          issueDate: issueDate,
+                          dueDate: dueDate,
+                          notes: notes.text.trim(),
+                          finalize: true,
+                          invoiceType: type,
+                          onState: (value, message) => setSheetState(() {
+                            saving = value;
+                            error = message;
+                          }),
+                        ),
+                  child: saving
+                      ? const _ButtonSpinner(label: 'Kaydediliyor')
+                      : const Text('Kesinleştir'),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -365,7 +515,12 @@ Future<void> _submitSalesInvoice({
   String invoiceType = 'SATIS',
   required void Function(bool saving, String? error) onState,
 }) async {
-  if (!formKey.currentState!.validate() || partnerId == null) return;
+  if (!validateAndReveal(formKey) || partnerId == null) return;
+  if (DateUtils.dateOnly(dueDate).isBefore(DateUtils.dateOnly(issueDate))) {
+    onState(false, 'Vade tarihi fatura tarihinden önce olamaz.');
+    return;
+  }
+  FocusScope.of(sheetContext).unfocus();
   onState(true, null);
   try {
     final invoice = await api.createSalesInvoice(
@@ -540,7 +695,6 @@ class _ButtonSpinner extends StatelessWidget {
   }
 }
 
-
 /// Tüm hızlı kayıt formlarında kullanılan ortak alt sayfa iskeleti.
 class _EntrySheet extends StatefulWidget {
   const _EntrySheet({
@@ -567,7 +721,8 @@ class _EntrySheetState extends State<_EntrySheet> {
   String? _error;
 
   Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_saving || !validateAndReveal(_formKey)) return;
+    FocusScope.of(context).unfocus();
     setState(() {
       _saving = true;
       _error = null;
@@ -587,51 +742,45 @@ class _EntrySheetState extends State<_EntrySheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        MediaQuery.viewInsetsOf(context).bottom + 24,
-      ),
-      child: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text(
-                widget.subtitle,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              ...widget.buildFields((update) => setState(update)),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                _FormError(message: _error!),
-              ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saving ? null : _submit,
-                  child: _saving
-                      ? const _ButtonSpinner(label: 'Kaydediliyor')
-                      : Text(widget.saveLabel),
-                ),
-              ),
+    return Form(
+      key: _formKey,
+      autovalidateMode: AutovalidateMode.onUserInteraction,
+      child: EntryFormLayout(
+        title: widget.title,
+        subtitle: widget.subtitle,
+        saving: _saving,
+        fields: [
+          const FormSectionLabel('Kayıt bilgileri'),
+          ...widget.buildFields((update) => setState(update)),
+        ],
+        footer: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_error != null) ...[
+              _FormError(message: _error!),
+              const SizedBox(height: 10),
             ],
-          ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _saving ? null : _submit,
+                icon: _saving
+                    ? const SizedBox.shrink()
+                    : const Icon(Icons.check_rounded),
+                label: _saving
+                    ? const _ButtonSpinner(label: 'Kaydediliyor')
+                    : Text(widget.saveLabel),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-double _number(String value) => double.tryParse(value.replaceAll(',', '.')) ?? 0;
+double _number(String value) =>
+    double.tryParse(value.replaceAll(',', '.')) ?? 0;
 
 String? _requiredText(String? value, String message) =>
     (value ?? '').trim().isEmpty ? message : null;
@@ -658,7 +807,8 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
     backgroundColor: FinkitColors.canvas,
     builder: (_) => _EntrySheet(
       title: 'Yeni Ürün / Hizmet',
-      subtitle: 'Satış faturasında bu kartı seçerek fiyat ve KDV otomatik gelir.',
+      subtitle:
+          'Satış faturasında bu kartı seçerek fiyat ve KDV otomatik gelir.',
       saveLabel: 'Ürünü Kaydet',
       onSave: () async {
         await api.createProduct(
@@ -676,6 +826,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: name,
           decoration: const InputDecoration(
             labelText: 'Ad',
@@ -685,6 +836,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: code,
           decoration: const InputDecoration(
             labelText: 'Kod',
@@ -710,6 +862,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: salesPrice,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -720,6 +873,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: purchasePrice,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -734,6 +888,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: manualCost,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -747,6 +902,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: unit,
                 decoration: const InputDecoration(labelText: 'Birim'),
               ),
@@ -772,6 +928,7 @@ Future<bool> showProductForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: barcode,
           decoration: const InputDecoration(
             labelText: 'Barkod (opsiyonel)',
@@ -819,6 +976,7 @@ Future<bool> showWarehouseForm(BuildContext context, FinkitApi api) async {
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: name,
           decoration: const InputDecoration(
             labelText: 'Depo Adı',
@@ -828,6 +986,7 @@ Future<bool> showWarehouseForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: code,
           decoration: const InputDecoration(
             labelText: 'Depo Kodu',
@@ -837,6 +996,7 @@ Future<bool> showWarehouseForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: city,
           decoration: const InputDecoration(
             labelText: 'Şehir (opsiyonel)',
@@ -946,6 +1106,7 @@ Future<bool> showStockMovementForm(
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: quantity,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -958,6 +1119,7 @@ Future<bool> showStockMovementForm(
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: unitCost,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -969,6 +1131,7 @@ Future<bool> showStockMovementForm(
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: description,
           decoration: const InputDecoration(
             labelText: 'Açıklama (opsiyonel)',
@@ -1076,9 +1239,7 @@ Future<bool> showQuoteForm(BuildContext context, FinkitApi api) async {
             ],
             onChanged: (value) => refresh(() {
               productId = value;
-              final match = products.where(
-                (product) => product['id'] == value,
-              );
+              final match = products.where((product) => product['id'] == value);
               if (match.isEmpty) return;
               final product = match.first;
               description.text = product['name']?.toString() ?? '';
@@ -1089,6 +1250,7 @@ Future<bool> showQuoteForm(BuildContext context, FinkitApi api) async {
         ],
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: description,
           decoration: const InputDecoration(
             labelText: 'Açıklama',
@@ -1101,6 +1263,7 @@ Future<bool> showQuoteForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: quantity,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -1112,6 +1275,7 @@ Future<bool> showQuoteForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: unitPrice,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -1157,6 +1321,7 @@ Future<bool> showQuoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: notes,
           maxLines: 2,
           decoration: const InputDecoration(
@@ -1198,7 +1363,9 @@ Future<bool> showPurchaseInvoiceForm(
   final invoiceNumber = TextEditingController();
   var supplierId = suppliers.first['id'] as int?;
   var productId = products.isNotEmpty ? products.first['id'] as int? : null;
-  var warehouseId = warehouses.isNotEmpty ? warehouses.first['id'] as int? : null;
+  var warehouseId = warehouses.isNotEmpty
+      ? warehouses.first['id'] as int?
+      : null;
   var vatRate = 20.0;
   var dueDate = DateTime.now().add(const Duration(days: 30));
   var inventory = products.isNotEmpty && warehouses.isNotEmpty;
@@ -1210,8 +1377,7 @@ Future<bool> showPurchaseInvoiceForm(
     backgroundColor: FinkitColors.canvas,
     builder: (_) => _EntrySheet(
       title: 'Yeni Gelen Fatura',
-      subtitle:
-          'Kaydettiğinizde tedarikçi cari borcu, KDV ve (seçiliyse) stok girişi oluşur.',
+      subtitle: 'Kaydettiğinizde tedarikçi cari borcu, KDV ve (seçiliyse) stok girişi oluşur.',
       saveLabel: 'Faturayı Kaydet',
       onSave: () async {
         final invoice = await api.createPurchaseInvoice(
@@ -1253,6 +1419,7 @@ Future<bool> showPurchaseInvoiceForm(
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: invoiceNumber,
           decoration: const InputDecoration(
             labelText: 'Fatura No (opsiyonel)',
@@ -1261,6 +1428,7 @@ Future<bool> showPurchaseInvoiceForm(
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: description,
           decoration: const InputDecoration(
             labelText: 'Açıklama',
@@ -1273,6 +1441,7 @@ Future<bool> showPurchaseInvoiceForm(
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: netAmount,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -1415,6 +1584,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: firstName,
                 decoration: const InputDecoration(labelText: 'Ad'),
                 validator: (value) => _requiredText(value, 'Ad gerekli'),
@@ -1423,6 +1593,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: lastName,
                 decoration: const InputDecoration(labelText: 'Soyad'),
                 validator: (value) => _requiredText(value, 'Soyad gerekli'),
@@ -1432,6 +1603,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: employeeNo,
           decoration: const InputDecoration(
             labelText: 'Sicil No',
@@ -1441,6 +1613,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: nationalId,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
@@ -1453,6 +1626,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: position,
                 decoration: const InputDecoration(labelText: 'Görev'),
               ),
@@ -1460,6 +1634,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: department,
                 decoration: const InputDecoration(labelText: 'Departman'),
               ),
@@ -1468,6 +1643,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: grossSalary,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
@@ -1479,6 +1655,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: phone,
           keyboardType: TextInputType.phone,
           decoration: const InputDecoration(
@@ -1488,6 +1665,7 @@ Future<bool> showEmployeeForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: email,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
@@ -1532,8 +1710,8 @@ Future<bool> showEmployeeAdvanceForm(
     backgroundColor: FinkitColors.canvas,
     builder: (_) => _EntrySheet(
       title: 'Avans Ver',
-      subtitle:
-          '${employee['first_name'] ?? ''} ${employee['last_name'] ?? ''}'.trim(),
+      subtitle: '${employee['first_name'] ?? ''} ${employee['last_name'] ?? ''}'
+          .trim(),
       saveLabel: 'Avansı Kaydet',
       onSave: () async {
         await api.createEmployeeAdvance(
@@ -1543,6 +1721,7 @@ Future<bool> showEmployeeAdvanceForm(
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
@@ -1619,6 +1798,7 @@ Future<bool> showCheckNoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: serialNo,
           decoration: const InputDecoration(
             labelText: 'Seri No',
@@ -1628,6 +1808,7 @@ Future<bool> showCheckNoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
@@ -1653,6 +1834,7 @@ Future<bool> showCheckNoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: counterparty,
           decoration: InputDecoration(
             labelText: direction == 'IN' ? 'Keşideci' : 'Lehtar',
@@ -1661,6 +1843,7 @@ Future<bool> showCheckNoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: bankName,
           decoration: const InputDecoration(
             labelText: 'Banka (opsiyonel)',
@@ -1669,6 +1852,7 @@ Future<bool> showCheckNoteForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: notes,
           maxLines: 2,
           decoration: const InputDecoration(
@@ -1740,6 +1924,7 @@ Future<bool> showSupplierPaymentForm(
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: amount,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
@@ -1786,6 +1971,7 @@ Future<bool> showFinancialAccountForm(
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: name,
           decoration: const InputDecoration(
             labelText: 'Hesap Adı',
@@ -1811,6 +1997,7 @@ Future<bool> showFinancialAccountForm(
         if (type != 'CASH') ...[
           const SizedBox(height: 12),
           TextFormField(
+            textInputAction: TextInputAction.next,
             controller: bankName,
             decoration: const InputDecoration(
               labelText: 'Banka Adı',
@@ -1819,6 +2006,7 @@ Future<bool> showFinancialAccountForm(
           ),
           const SizedBox(height: 12),
           TextFormField(
+            textInputAction: TextInputAction.next,
             controller: iban,
             decoration: const InputDecoration(
               labelText: 'IBAN (opsiyonel)',
@@ -1828,6 +2016,7 @@ Future<bool> showFinancialAccountForm(
         ],
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: openingBalance,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: const InputDecoration(
@@ -1883,6 +2072,7 @@ Future<bool> showReminderRuleForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: daysBefore,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
@@ -1899,6 +2089,7 @@ Future<bool> showReminderRuleForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: message,
           maxLines: 3,
           decoration: const InputDecoration(
@@ -1934,8 +2125,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
     backgroundColor: FinkitColors.canvas,
     builder: (_) => _EntrySheet(
       title: 'Yeni Mükellef',
-      subtitle:
-          'Şifre boş bırakılırsa geçici şifre üretilir ve kayıt sonrası gösterilir.',
+      subtitle: 'Şifre boş bırakılırsa geçici şifre üretilir ve kayıt sonrası gösterilir.',
       saveLabel: 'Mükellefi Kaydet',
       onSave: () async {
         final result = await api.createClient(
@@ -1954,6 +2144,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: companyTitle,
           decoration: const InputDecoration(
             labelText: 'Firma Ünvanı',
@@ -1963,6 +2154,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: fullName,
           decoration: const InputDecoration(
             labelText: 'Yetkili Ad Soyad',
@@ -1972,6 +2164,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: email,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(
@@ -1988,6 +2181,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: tckn,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
@@ -2007,6 +2201,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: taxNumber,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Vergi No'),
@@ -2015,6 +2210,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: phone,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Telefon'),
@@ -2027,6 +2223,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: monthlyFee,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -2039,6 +2236,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: dueDay,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Ödeme Günü'),
@@ -2055,6 +2253,7 @@ Future<String?> showClientForm(BuildContext context, FinkitApi api) async {
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: password,
           decoration: const InputDecoration(
             labelText: 'Şifre (opsiyonel)',
@@ -2133,6 +2332,7 @@ Future<bool> showClientEditForm(
       },
       buildFields: (refresh) => [
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: company,
           decoration: const InputDecoration(
             labelText: 'Firma Ünvanı',
@@ -2142,6 +2342,7 @@ Future<bool> showClientEditForm(
         ),
         const SizedBox(height: 12),
         TextFormField(
+          textInputAction: TextInputAction.next,
           controller: name,
           decoration: const InputDecoration(
             labelText: 'Yetkili Ad Soyad',
@@ -2154,6 +2355,7 @@ Future<bool> showClientEditForm(
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: tax,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Vergi No'),
@@ -2162,6 +2364,7 @@ Future<bool> showClientEditForm(
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: phone,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(labelText: 'Telefon'),
@@ -2174,6 +2377,7 @@ Future<bool> showClientEditForm(
           children: [
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: fee,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -2184,6 +2388,7 @@ Future<bool> showClientEditForm(
             const SizedBox(width: 10),
             Expanded(
               child: TextFormField(
+                textInputAction: TextInputAction.next,
                 controller: dueDay,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(labelText: 'Ödeme Günü'),

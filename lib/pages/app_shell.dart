@@ -224,7 +224,9 @@ class _FinkitShellState extends State<FinkitShell> {
         (scheduledAt == null || scheduledAt.isEmpty)) {
       return null;
     }
-    final label = (when != null && when.isNotEmpty) ? when : dateText(scheduledAt);
+    final label = (when != null && when.isNotEmpty)
+        ? when
+        : dateText(scheduledAt);
     return 'Planlı sistem bakımı: $label (TR). Bakım saatinde açık oturumlar '
         'kapatılacaktır; çalışmalarınızı kaydetmeyi unutmayın.';
   }
@@ -869,207 +871,19 @@ class _FinkitShellState extends State<FinkitShell> {
   }
 
   Future<void> _showExpenseForm() async {
-    final description = TextEditingController();
-    final amount = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: FinkitColors.canvas,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Gider Ekle',
-                style: Theme.of(sheetContext).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 18),
-              TextFormField(
-                controller: description,
-                decoration: const InputDecoration(
-                  labelText: 'Açıklama',
-                  prefixIcon: Icon(Icons.edit_note_rounded),
-                ),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Açıklama gerekli'
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: amount,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Net Tutar',
-                  prefixIcon: Icon(Icons.currency_lira_rounded),
-                ),
-                validator: (value) => double.tryParse(value ?? '') == null
-                    ? 'Geçerli tutar girin'
-                    : null,
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    if (!formKey.currentState!.validate()) return;
-                    try {
-                      await widget.api.createExpense(
-                        description: description.text.trim(),
-                        netAmount: double.parse(amount.text),
-                      );
-                      if (sheetContext.mounted) Navigator.pop(sheetContext);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Gider kaydedildi')),
-                        );
-                      }
-                    } catch (error) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(error.toString())),
-                        );
-                      }
-                    }
-                  },
-                  child: const Text('Kaydet'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    final created = await showExpenseEntryForm(context, widget.api);
+    if (created && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Gider kaydedildi')));
+    }
   }
 
   Future<void> _showCollectionForm() async {
-    final partners = await widget.api.partners();
-    final accounts = await widget.api.accounts();
-    if (!mounted) return;
-    final amount = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    int? partnerId = partners.isNotEmpty ? partners.first['id'] as int? : null;
-    int? accountId = accounts.isNotEmpty ? accounts.first['id'] as int? : null;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: FinkitColors.canvas,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            0,
-            20,
-            MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-          ),
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Tahsilat Al',
-                  style: Theme.of(sheetContext).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 18),
-                DropdownButtonFormField<int>(
-                  initialValue: partnerId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Müşteri',
-                    prefixIcon: Icon(Icons.person_outline_rounded),
-                  ),
-                  items: partners
-                      .map(
-                        (partner) => DropdownMenuItem<int>(
-                          value: partner['id'] as int?,
-                          child: Text(partner['name']?.toString() ?? 'Müşteri'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setSheetState(() => partnerId = value),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: accountId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Kasa / Banka',
-                    prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                  ),
-                  items: accounts
-                      .map(
-                        (account) => DropdownMenuItem<int>(
-                          value: account['id'] as int?,
-                          child: Text(account['name']?.toString() ?? 'Hesap'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setSheetState(() => accountId = value),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: amount,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Tahsilat Tutarı',
-                    prefixIcon: Icon(Icons.currency_lira_rounded),
-                  ),
-                  validator: (value) => double.tryParse(value ?? '') == null
-                      ? 'Geçerli tutar girin'
-                      : null,
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (!formKey.currentState!.validate() ||
-                          partnerId == null) {
-                        return;
-                      }
-                      final messenger = ScaffoldMessenger.of(sheetContext);
-                      try {
-                        await widget.api.createCollection(
-                          partnerId: partnerId!,
-                          amount: double.parse(amount.text),
-                          accountId: accountId,
-                        );
-                        if (sheetContext.mounted) Navigator.pop(sheetContext);
-                        messenger.showSnackBar(
-                          const SnackBar(content: Text('Tahsilat kaydedildi')),
-                        );
-                      } catch (error) {
-                        messenger.showSnackBar(
-                          SnackBar(content: Text(error.toString())),
-                        );
-                      }
-                    },
-                    child: const Text('Tahsilatı Kaydet'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    final created = await showCollectionEntryForm(context, widget.api);
+    if (created && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Tahsilat kaydedildi')));
+    }
   }
 
   Widget _page() {
@@ -1144,7 +958,8 @@ class _FinkitShellState extends State<FinkitShell> {
               onRefresh: _refresh,
               onMenu: () => setState(() => _index = 3),
             ),
-            if (_maintenanceNoticeText != null) _MaintenanceStrip(text: _maintenanceNoticeText!),
+            if (_maintenanceNoticeText != null)
+              _MaintenanceStrip(text: _maintenanceNoticeText!),
             Expanded(child: _page()),
           ],
         ),

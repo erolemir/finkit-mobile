@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class FinkitColors {
-  static const ink = Color(0xFF111318);
-  static const inkSoft = Color(0xFF20232A);
-  static const canvas = Color(0xFFF6F7F9);
+  static const ink = Color(0xFF174D68);
+  static const primary = Color(0xFF126B83);
+  static const primarySoft = Color(0xFFE8F4F8);
+  static const violet = Color(0xFF7052B8);
+  static const inkSoft = Color(0xFF216E87);
+  static const canvas = Color(0xFFF3F7FA);
   static const surface = Colors.white;
   static const line = Color(0xFFE7EAEF);
   static const text = Color(0xFF17202B);
@@ -24,9 +27,9 @@ ThemeData buildFinkitTheme() {
     brightness: Brightness.light,
     scaffoldBackgroundColor: FinkitColors.canvas,
     colorScheme: ColorScheme.fromSeed(
-      seedColor: FinkitColors.ink,
+      seedColor: FinkitColors.primary,
       brightness: Brightness.light,
-      primary: FinkitColors.ink,
+      primary: FinkitColors.primary,
       surface: FinkitColors.surface,
       error: FinkitColors.danger,
     ),
@@ -83,7 +86,7 @@ ThemeData buildFinkitTheme() {
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xFFFBFBFC),
+      fillColor: const Color(0xFFF7FAFC),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(13),

@@ -1,3 +1,5 @@
+export 'reports_page.dart';
+
 import 'package:flutter/material.dart';
 
 import '../api_client.dart';
@@ -531,6 +533,7 @@ class CustomersPage extends StatefulWidget {
 
   final FinkitApi api;
   final int refreshKey;
+
   /// 'CUSTOMER' veya 'SUPPLIER'; boş bırakılırsa tüm cari kartlar listelenir.
   final String? partnerType;
 
@@ -554,8 +557,7 @@ class _CustomersPageState extends State<CustomersPage> {
     if (oldWidget.refreshKey != widget.refreshKey) _load();
   }
 
-  void _load() =>
-      _future = widget.api.partners(type: widget.partnerType);
+  void _load() => _future = widget.api.partners(type: widget.partnerType);
 
   Future<void> _openCreateForm() async {
     final created = await showPartnerForm(
@@ -594,11 +596,12 @@ class _CustomersPageState extends State<CustomersPage> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           children: [
             PageTitle(
-              title: widget.partnerType == 'SUPPLIER' ? 'Tedarikçiler' : 'Müşteriler',
-              subtitle:
-                  widget.partnerType == 'SUPPLIER'
-                      ? 'Tedarikçi kartları, borç bakiyeleri ve ödeme vadeleri.'
-                      : 'Cari hesapları, bakiyeleri ve iletişim bilgilerini yönetin.',
+              title: widget.partnerType == 'SUPPLIER'
+                  ? 'Tedarikçiler'
+                  : 'Müşteriler',
+              subtitle: widget.partnerType == 'SUPPLIER'
+                  ? 'Tedarikçi kartları, borç bakiyeleri ve ödeme vadeleri.'
+                  : 'Cari hesapları, bakiyeleri ve iletişim bilgilerini yönetin.',
               trailing: IconButton.filled(
                 onPressed: _openCreateForm,
                 style: IconButton.styleFrom(
@@ -639,10 +642,8 @@ class _CustomersPageState extends State<CustomersPage> {
                       context: context,
                       showDragHandle: true,
                       backgroundColor: FinkitColors.canvas,
-                      builder: (_) => PartnerDetailSheet(
-                        api: widget.api,
-                        partner: partner,
-                      ),
+                      builder: (_) =>
+                          PartnerDetailSheet(api: widget.api, partner: partner),
                     ),
                   ),
                 ),
@@ -786,254 +787,6 @@ class _PayrollPageState extends State<PayrollPage> {
         );
       },
     );
-  }
-}
-
-class ReportsPage extends StatelessWidget {
-  const ReportsPage({
-    super.key,
-    required this.api,
-    required this.refreshKey,
-    required this.onOpenReport,
-  });
-
-  final FinkitApi api;
-  final int refreshKey;
-  final void Function(String report) onOpenReport;
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: api.summary(),
-      builder: (context, snapshot) {
-        final summary = snapshot.data ?? const <String, dynamic>{};
-        final reportItems = const [
-          ('Satış Raporu', 'sales', Icons.trending_up_rounded),
-          ('Tahsilat Raporu', 'collections', Icons.call_received_rounded),
-          ('Gider Raporu', 'expenses', Icons.receipt_long_outlined),
-          ('Ödemeler Raporu', 'payments', Icons.payments_outlined),
-          ('KDV1 Taslağı', 'vat', Icons.percent_rounded),
-          ('Gelir-Gider Raporu', 'income-expense', Icons.auto_graph_rounded),
-          (
-            'Kasa Raporu',
-            'cash-register',
-            Icons.account_balance_wallet_outlined,
-          ),
-          ('Stok Raporu', 'stock', Icons.inventory_2_outlined),
-          ('Vade Yaşlandırma', 'aging', Icons.schedule_rounded),
-          ('Bordro Raporu', 'payroll', Icons.groups_2_outlined),
-        ];
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-          children: [
-            const PageTitle(
-              title: 'Raporlar',
-              subtitle: 'Finansal performansınızı dönem bazında analiz edin.',
-            ),
-            SurfaceCard(
-              dark: true,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _DarkMetric(
-                      'Net Sonuç',
-                      moneyText(summary['net_total']),
-                      Icons.auto_graph_rounded,
-                    ),
-                  ),
-                  Container(
-                    width: 1,
-                    height: 44,
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                  Expanded(
-                    child: _DarkMetric(
-                      'Nakit',
-                      moneyText(summary['cash_balance']),
-                      Icons.account_balance_wallet_outlined,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SectionHeader(title: 'Rapor Kütüphanesi'),
-            ...reportItems.map(
-              (item) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: DataRowCard(
-                  icon: item.$3,
-                  title: item.$1,
-                  subtitle: _reportDescription(item.$2),
-                  value: '',
-                  valueSubtitle: 'Aç',
-                  onTap: () => onOpenReport(item.$2),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  static String _reportDescription(String report) {
-    return switch (report) {
-      'sales' => 'Ciro, KDV, iade ve müşteri kırılımı',
-      'collections' => 'Tahsilat, bekleyen ve gecikmiş alacaklar',
-      'expenses' => 'Kategori, tedarikçi ve ödeme durumu',
-      'payments' => 'Tedarikçi, personel ve diğer ödemeler',
-      'vat' => 'Hesaplanan, indirilecek ve ödenecek KDV',
-      'income-expense' => 'Tahakkuk ve nakit bazlı sonuç',
-      'cash-register' => 'Hesap bazlı açılış, giriş, çıkış ve kapanış',
-      'stock' => 'Depo bazlı miktar ve stok değeri',
-      'aging' => 'Vadesi geçen alacakların yaşlandırması',
-      'payroll' => 'Brüt, net ve işveren maliyeti',
-      _ => 'Finansal rapor',
-    };
-  }
-}
-
-class ReportDetailPage extends StatefulWidget {
-  const ReportDetailPage({
-    super.key,
-    required this.api,
-    required this.report,
-    required this.title,
-  });
-
-  final FinkitApi api;
-  final String report;
-  final String title;
-
-  @override
-  State<ReportDetailPage> createState() => _ReportDetailPageState();
-}
-
-class _ReportDetailPageState extends State<ReportDetailPage> {
-  late Future<Map<String, dynamic>> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = widget.api.report(widget.report);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FinkitColors.canvas,
-      appBar: AppBar(title: Text(widget.title)),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const LoadingState();
-          }
-          if (snapshot.hasError) {
-            return _PageError(
-              message: snapshot.error.toString(),
-              onRetry: () => setState(() {
-                _future = widget.api.report(widget.report);
-              }),
-            );
-          }
-          final summary = Map<String, dynamic>.from(
-            snapshot.data?['summary'] ?? {},
-          );
-          if (summary.isEmpty) {
-            return const EmptyState(
-              icon: Icons.insert_chart_outlined_rounded,
-              title: 'Rapor verisi yok',
-              description: 'Seçilen dönemde raporlanacak veri bulunmuyor.',
-            );
-          }
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              SurfaceCard(
-                child: Column(
-                  children: summary.entries
-                      .map(
-                        (entry) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  reportLabel(entry.key),
-                                  style: const TextStyle(
-                                    color: FinkitColors.muted,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                _reportValue(entry.value),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  String _reportValue(dynamic value) {
-    final number = value is num ? value.toDouble() : double.tryParse('$value');
-    if (number != null &&
-        (widget.report != 'stock' ||
-            ![
-              'item_count',
-              'movement_count',
-              'low_stock_count',
-            ].contains(value))) {
-      return moneyText(number);
-    }
-    return '$value';
-  }
-
-  static String reportLabel(String key) {
-    const labels = {
-      'sales_total': 'Satış Toplamı',
-      'expense_total': 'Gider Toplamı',
-      'net_total': 'Net Sonuç',
-      'cash_balance': 'Nakit Bakiye',
-      'customer_count': 'Müşteri Sayısı',
-      'supplier_count': 'Tedarikçi Sayısı',
-      'employee_count': 'Çalışan Sayısı',
-      'invoice_count': 'Fatura Sayısı',
-      'net': 'Net Tutar',
-      'vat': 'KDV',
-      'gross': 'Genel Toplam',
-      'count': 'Kayıt Sayısı',
-      'total': 'Toplam',
-      'allocated': 'Dağıtılan',
-      'unallocated': 'Avans',
-      'pending_receivables': 'Bekleyen Tahsilat',
-      'overdue_receivables': 'Gecikmiş Tahsilat',
-      'output_vat': 'Hesaplanan KDV',
-      'input_vat': 'İndirilecek KDV',
-      'payable': 'Ödenecek KDV',
-      'carried_out': 'Devreden KDV',
-      'closing': 'Kapanış',
-      'inflow': 'Giriş',
-      'outflow': 'Çıkış',
-      'opening': 'Açılış',
-      'gross_total': 'Brüt Toplam',
-      'employer_cost_total': 'İşveren Maliyeti',
-    };
-    return labels[key] ?? 'Diğer';
   }
 }
 
@@ -1355,10 +1108,11 @@ class _PartnerDetailSheetState extends State<PartnerDetailSheet> {
         : widget.api.partner(id).catchError((_) => widget.partner);
   }
 
-  List<Map<String, dynamic>> _rows(Object? value) => (value as List? ?? const [])
-      .whereType<Map>()
-      .map((item) => Map<String, dynamic>.from(item))
-      .toList();
+  List<Map<String, dynamic>> _rows(Object? value) =>
+      (value as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
 
   @override
   Widget build(BuildContext context) {
@@ -1412,11 +1166,7 @@ class _PartnerDetailSheetState extends State<PartnerDetailSheet> {
                     _DetailLine(
                       '${address['title'] ?? 'Adres'}'
                       '${address['is_default'] == true ? ' (varsayılan)' : ''}',
-                      [
-                        address['address'],
-                        address['district'],
-                        address['city'],
-                      ]
+                      [address['address'], address['district'], address['city']]
                           .where((part) => '${part ?? ''}'.trim().isNotEmpty)
                           .join(', '),
                     ),
@@ -1446,7 +1196,7 @@ class _PartnerDetailSheetState extends State<PartnerDetailSheet> {
                     _DetailLine(
                       balance['direction'] == 'CREDIT' ? 'Alacaklı' : 'Borçlu',
                       '${moneyText(balance['amount'])} '
-                          '${balance['currency'] ?? ''}',
+                      '${balance['currency'] ?? ''}',
                     ),
                 ],
                 if (loading) ...[

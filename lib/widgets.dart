@@ -182,7 +182,14 @@ class MetricCard extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: 166),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: dark ? FinkitColors.ink : FinkitColors.surface,
+          color: dark ? null : FinkitColors.surface,
+          gradient: dark
+              ? const LinearGradient(
+                  colors: [FinkitColors.ink, FinkitColors.primary],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : null,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: dark ? Colors.transparent : FinkitColors.line,
@@ -208,7 +215,7 @@ class MetricCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: dark
                         ? Colors.white.withValues(alpha: 0.12)
-                        : const Color(0xFFF0F2F5),
+                        : FinkitColors.primarySoft,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
@@ -361,7 +368,14 @@ class SurfaceCard extends StatelessWidget {
     final card = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: dark ? FinkitColors.ink : FinkitColors.surface,
+        color: dark ? null : FinkitColors.surface,
+        gradient: dark
+            ? const LinearGradient(
+                colors: [FinkitColors.ink, FinkitColors.primary],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: dark ? Colors.transparent : FinkitColors.line,
@@ -374,7 +388,7 @@ class SurfaceCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
+      child: Material(type: MaterialType.transparency, child: child),
     );
     if (onTap == null) return card;
     return InkWell(
@@ -418,7 +432,7 @@ class DataRowCard extends StatelessWidget {
             width: 43,
             height: 43,
             decoration: BoxDecoration(
-              color: const Color(0xFFF0F2F5),
+              color: FinkitColors.primarySoft,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, size: 21, color: FinkitColors.ink),
@@ -796,7 +810,7 @@ class QuickTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: primary
                         ? Colors.white.withValues(alpha: 0.12)
-                        : const Color(0xFFF0F2F5),
+                        : FinkitColors.primarySoft,
                     borderRadius: BorderRadius.circular(compact ? 11 : 14),
                   ),
                   child: Icon(
