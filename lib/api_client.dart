@@ -895,6 +895,10 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> systemStatus() => _get('/general/system-status');
 
+  /// Finkit tarafından yayınlanan sistem güncellemeleri (müşavir + mükellef okur).
+  Future<List<Map<String, dynamic>>> systemUpdates({int limit = 50}) =>
+      _listAny('/system-updates', query: {'limit': '$limit'});
+
   // ── Toplu mesaj (mail / WhatsApp) ──────────────────────────
   Future<Map<String, dynamic>> sendBulkMessage({
     required List<int> clientIds,
@@ -1595,6 +1599,26 @@ class DemoData {
           'pending_receivables': 142850,
           'overdue_receivables': 18200,
         },
+      };
+    }
+    if (path.contains('/system-updates')) {
+      return {
+        'items': [
+          {
+            'id': 1,
+            'software_name': 'Finkit',
+            'revision_number': 'v1.1',
+            'revision_date': '2026-06-15',
+            'summary':
+                'Belge indirme akışı iyileştirildi.\nBakım modu ve planlı bakım bildirimi eklendi.',
+            'health_status': 'OK',
+            'hardware': 'Finkit bulut sunucuları (TR veri merkezi)',
+            'maintenance_done': true,
+            'antivirus': true,
+            'min_config_ok': true,
+            'version_current': true,
+          },
+        ],
       };
     }
     return {'summary': <String, dynamic>{}, 'items': <dynamic>[]};

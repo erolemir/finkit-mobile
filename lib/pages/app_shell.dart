@@ -17,12 +17,21 @@ import 'menu_page.dart';
 import 'more_pages.dart';
 import 'notification_center_page.dart';
 import 'platform_pages.dart';
+import 'system_updates_page.dart';
 
 class FinkitShell extends StatefulWidget {
-  const FinkitShell({super.key, required this.api, required this.onLogout});
+  const FinkitShell({
+    super.key,
+    required this.api,
+    required this.onLogout,
+    this.maintenanceNotice,
+  });
 
   final FinkitApi api;
   final Future<void> Function() onLogout;
+
+  /// Planlanan bakım bilgisi (varsa üstte uyarı şeridi gösterilir).
+  final Map<String, dynamic>? maintenanceNotice;
 
   @override
   State<FinkitShell> createState() => _FinkitShellState();
@@ -202,6 +211,22 @@ class _FinkitShellState extends State<FinkitShell> {
           ),
         )
         .then((_) => _loadUnreadCount());
+  }
+
+  /// Planlanan bakım varsa gösterilecek uyarı metni.
+  String? get _maintenanceNoticeText {
+    final notice = widget.maintenanceNotice;
+    if (notice == null) return null;
+    if (notice['maintenance_mode'] == true) return null;
+    final when = notice['scheduled_at_tr']?.toString().trim();
+    final scheduledAt = notice['scheduled_at']?.toString().trim();
+    if ((when == null || when.isEmpty) &&
+        (scheduledAt == null || scheduledAt.isEmpty)) {
+      return null;
+    }
+    final label = (when != null && when.isNotEmpty) ? when : dateText(scheduledAt);
+    return 'Planlı sistem bakımı: $label (TR). Bakım saatinde açık oturumlar '
+        'kapatılacaktır; çalışmalarınızı kaydetmeyi unutmayın.';
   }
 
   /// Rol bazlı menü: müşavir ve mükellef için ayrı özellik setleri.
@@ -565,6 +590,13 @@ class _FinkitShellState extends State<FinkitShell> {
           icon: Icons.campaign_outlined,
           builder: (_) =>
               AnnouncementsListPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        MenuEntry(
+          title: 'Sistem Güncellemeleri',
+          subtitle: 'Finkit güncellemeleri ve sistem sağlık durumu',
+          icon: Icons.system_update_alt_rounded,
+          builder: (_) =>
+              SystemUpdatesPage(api: widget.api, refreshKey: _refreshKey),
         ),
       ],
     );
@@ -1112,6 +1144,7 @@ class _FinkitShellState extends State<FinkitShell> {
               onRefresh: _refresh,
               onMenu: () => setState(() => _index = 3),
             ),
+            if (_maintenanceNoticeText != null) _MaintenanceStrip(text: _maintenanceNoticeText!),
             Expanded(child: _page()),
           ],
         ),
@@ -1123,6 +1156,44 @@ class _FinkitShellState extends State<FinkitShell> {
         labels: _isClient
             ? const ['Özet', 'Ödemeler', 'Belgeler', 'Menü']
             : const ['Özet', 'Faturalar', 'Kasa', 'Menü'],
+      ),
+    );
+  }
+}
+
+/// Planlanan bakım bilgisini gösteren uyarı şeridi.
+class _MaintenanceStrip extends StatelessWidget {
+  const _MaintenanceStrip({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFF4E0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.schedule_rounded,
+            size: 16,
+            color: Color(0xFFB45309),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 11.5,
+                height: 1.4,
+                color: Color(0xFF92400E),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

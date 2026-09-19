@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
@@ -29,6 +31,9 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
   final FinkitApi _api = FinkitApi();
   bool _ready = false;
   bool _authenticated = false;
+  Timer? _maintenancePoll;
+  bool _maintenanceMode = false;
+  Map<String, dynamic>? _maintenanceNotice;
 
   @override
   void initState() {
@@ -43,8 +48,31 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
 
   @override
   void dispose() {
+    _maintenancePoll?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Sistem bakım durumunu kontrol eder.
+  ///
+  /// Bakım başladığında açık oturum kapatılır; kullanıcı bakım saatinden önce
+  /// e-posta ve bildirimle bilgilendirilmiş olur.
+  Future<void> _checkMaintenance() async {
+    try {
+      final status = await _api.systemStatus();
+      if (!mounted) return;
+      final inMaintenance = status['maintenance_mode'] == true;
+      if (inMaintenance && !_maintenanceMode && _authenticated) {
+        await _logout();
+        if (!mounted) return;
+      }
+      setState(() {
+        _maintenanceMode = inMaintenance;
+        _maintenanceNotice = inMaintenance ? null : status;
+      });
+    } catch (_) {
+      // Ağ hatasında mevcut durum korunur.
+    }
   }
 
   @override
@@ -68,6 +96,13 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
       _ready = true;
       _authenticated = _api.token != null;
     });
+    // Kayıtlı sunucu adresi yüklendikten SONRA bakım kontrolü başlatılır.
+    await _checkMaintenance();
+    // Bakım modu ve planlı bakım bilgisi dakikada bir kontrol edilir.
+    _maintenancePoll = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _checkMaintenance(),
+    );
   }
 
   Future<void> _logout() async {
@@ -85,8 +120,14 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
       theme: buildFinkitTheme(),
       home: !_ready
           ? const _SplashScreen()
+          : _maintenanceMode
+          ? _MaintenanceScreen(onRetry: _checkMaintenance)
           : _authenticated
-          ? FinkitShell(api: _api, onLogout: _logout)
+          ? FinkitShell(
+              api: _api,
+              onLogout: _logout,
+              maintenanceNotice: _maintenanceNotice,
+            )
           : FinkitLoginPage(
               api: _api,
               onAuthenticated: () => setState(() => _authenticated = true),
@@ -123,6 +164,66 @@ class _SplashScreen extends StatelessWidget {
               strokeWidth: 2.4,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bakım modu açıkken gösterilen tam ekran.
+class _MaintenanceScreen extends StatelessWidget {
+  const _MaintenanceScreen({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: FinkitColors.canvas,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFFFF4E0),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.build_circle_outlined,
+                  size: 38,
+                  color: Color(0xFFB45309),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Sistem Bakımda',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Finkit şu anda bakım modundadır. Bakım başladığında açık '
+                'oturumunuz güvenli şekilde kapatıldı. Çalışmalarınız kaydedildi; '
+                'bakım tamamlandığında tekrar giriş yapabilirsiniz.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.55,
+                  color: FinkitColors.muted,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () => onRetry(),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Tekrar Kontrol Et'),
+              ),
+            ],
+          ),
         ),
       ),
     );
