@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'theme.dart';
+import 'document_types.dart';
+export 'document_types.dart';
 
 final _money = NumberFormat.currency(
   locale: 'tr_TR',
@@ -410,8 +412,10 @@ class DataRowCard extends StatelessWidget {
     this.status,
     this.positive,
     this.onTap,
+    this.document,
   });
 
+  final Map<String, dynamic>? document;
   final IconData icon;
   final String title;
   final String subtitle;
@@ -426,73 +430,82 @@ class DataRowCard extends StatelessWidget {
     return SurfaceCard(
       onTap: onTap,
       padding: const EdgeInsets.all(13),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 43,
-            height: 43,
-            decoration: BoxDecoration(
-              color: FinkitColors.primarySoft,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, size: 21, color: FinkitColors.ink),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: FinkitColors.muted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
             children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: positive == null
-                      ? FinkitColors.text
-                      : positive!
-                      ? FinkitColors.success
-                      : FinkitColors.danger,
+              Container(
+                width: 43,
+                height: 43,
+                decoration: BoxDecoration(
+                  color: FinkitColors.primarySoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, size: 21, color: FinkitColors.ink),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: FinkitColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              if (status != null)
-                StatusPill(label: statusLabel(status), value: status)
-              else if (valueSubtitle != null)
-                Text(
-                  valueSubtitle!,
-                  style: const TextStyle(
-                    color: FinkitColors.mutedLight,
-                    fontSize: 10,
+              const SizedBox(width: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: positive == null
+                          ? FinkitColors.text
+                          : positive!
+                          ? FinkitColors.success
+                          : FinkitColors.danger,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 4),
+                  if (status != null)
+                    StatusPill(label: statusLabel(status), value: status)
+                  else if (valueSubtitle != null)
+                    Text(
+                      valueSubtitle!,
+                      style: const TextStyle(
+                        color: FinkitColors.mutedLight,
+                        fontSize: 10,
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
+          if (document != null) ...[
+            const SizedBox(height: 10),
+            DocumentTypeBadges(document: document!),
+          ],
         ],
       ),
     );
@@ -839,6 +852,51 @@ class QuickTile extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+}
+
+/// Type and business operation stay distinct from delivery/payment status.
+class DocumentTypeBadges extends StatelessWidget {
+  const DocumentTypeBadges({
+    super.key,
+    required this.document,
+    this.dark = false,
+  });
+  final Map<String, dynamic> document;
+  final bool dark;
+  @override
+  Widget build(BuildContext context) {
+    final type = documentTypeLabel(document);
+    final kind = invoiceKindLabel(document);
+    final color = type == 'E-Arşiv'
+        ? FinkitColors.violet
+        : FinkitColors.primary;
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final label in [type, if (kind != null) kind])
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: dark
+                  ? Colors.white
+                  : label == type
+                  ? color.withValues(alpha: .12)
+                  : const Color(0xFFEEF0F3),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: label == type ? color : FinkitColors.muted,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

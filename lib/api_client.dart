@@ -826,7 +826,7 @@ class FinkitApi {
       _list('/einvoice/invoices', query: {'page_size': '50'});
 
   Future<List<Map<String, dynamic>>> einvoiceInbox() =>
-      _list('/einvoice/inbox', query: {'page_size': '50'});
+      _einvoiceInbox('/einvoice/inbox');
 
   Future<List<Map<String, dynamic>>> einvoiceDespatches() =>
       _list('/einvoice/despatches', query: {'page_size': '50'});
@@ -834,8 +834,20 @@ class FinkitApi {
   Future<List<Map<String, dynamic>>> clientEinvoiceInvoices() =>
       _list('/client-einvoice/invoices', query: {'page_size': '50'});
 
+  // Both inbox endpoints proxy Izibiz's e-invoice inbox, not e-archive.
+  Future<List<Map<String, dynamic>>> _einvoiceInbox(String path) async =>
+      (await _list(path, query: {'page_size': '50'}))
+          .map(
+            (item) => {
+              ...item,
+              'document_type':
+                  item['document_type'] ?? item['documentType'] ?? 'EINVOICE',
+            },
+          )
+          .toList();
+
   Future<List<Map<String, dynamic>>> clientEinvoiceInbox() =>
-      _list('/client-einvoice/inbox', query: {'page_size': '50'});
+      _einvoiceInbox('/client-einvoice/inbox');
 
   // ── Takvim, hatırlatıcı, GİB ───────────────────────────────
   Future<List<Map<String, dynamic>>> calendarEvents() =>

@@ -71,7 +71,7 @@ void main() {
       'Şablonlar',
       'Hatırlatma Kuralları',
       'Belgeler',
-      'E-Fatura',
+      'E-Fatura ve E-Arşiv',
       'E-Belgeler',
       'Duyurular',
       'Sohbet',

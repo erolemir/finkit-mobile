@@ -158,12 +158,18 @@ class _FeatureMenuPageState extends State<FeatureMenuPage> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: SurfaceCard(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
                     child: Column(
                       children: [
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(section.entries.first.icon, color: FinkitColors.primary),
+                          leading: Icon(
+                            section.entries.first.icon,
+                            color: FinkitColors.primary,
+                          ),
                           title: Text(
                             section.title,
                             style: const TextStyle(fontWeight: FontWeight.w800),
@@ -246,7 +252,7 @@ class _MenuTile extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     entry.subtitle,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: FinkitColors.muted,

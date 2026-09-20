@@ -78,7 +78,7 @@ class _SalesPageState extends State<SalesPage> {
                 partnerSnapshot.data ?? const <Map<String, dynamic>>[];
             final all = salesSnapshot.data ?? const <Map<String, dynamic>>[];
             final items = all.where((invoice) {
-              if (!'${invoice['number']} ${_partnerName(partners, invoice['partner_id'])}'
+              if (!'${invoice['number']} ${_partnerName(partners, invoice['partner_id'])} ${documentTypeLabel(invoice)} ${invoiceKindLabel(invoice) ?? ''}'
                   .toLowerCase()
                   .replaceAll('ı', 'i')
                   .contains(_search)) {
@@ -112,7 +112,7 @@ class _SalesPageState extends State<SalesPage> {
                 children: [
                   PageTitle(
                     title: 'Satış Faturaları',
-                    subtitle: 'Faturaları izleyin, durumlarını ve tahsilatlarını yönetin.',
+                    subtitle: 'E-Fatura, E-Arşiv, E-SMM, E-Müstahsil ve manuel satış kayıtlarının durumunu ve tahsilatlarını yönetin.',
                     trailing: IconButton.filled(
                       onPressed: _openCreateForm,
                       style: IconButton.styleFrom(
@@ -172,6 +172,7 @@ class _SalesPageState extends State<SalesPage> {
                           valueSubtitle:
                               'Vade ${dateText(invoice['due_date'])}',
                           status: invoice['payment_status']?.toString(),
+                          document: invoice,
                           onTap: () async {
                             await openInvoiceDetail(
                               context,
@@ -268,7 +269,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
             children: [
               const PageTitle(
                 title: 'Giderler',
-                subtitle: 'Gelen faturaları ve işletme giderlerini tek akışta yönetin.',
+                subtitle: 'Gelen E-Fatura, E-Arşiv, manuel alış kayıtları ve işletme giderlerini birlikte izleyin.',
               ),
               SummaryGrid(
                 items: [
@@ -308,6 +309,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
                               'Tedarikçi · ${dateText(invoice['issue_date'])}',
                           value: moneyText(invoice['gross_amount']),
                           status: invoice['payment_status']?.toString(),
+                          document: invoice,
                           onTap: () async {
                             await openInvoiceDetail(
                               context,

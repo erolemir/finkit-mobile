@@ -60,7 +60,7 @@ void main() {
       'Nakit Akış Raporu',
       'Tüm Raporlar',
       'Belgelerim',
-      'E-Fatura',
+      'E-Fatura ve E-Arşiv',
       'Duyurular',
       'Sohbet',
       'Müşavir Taleplerim',

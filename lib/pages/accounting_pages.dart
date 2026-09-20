@@ -454,12 +454,13 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
   Widget build(BuildContext context) {
     return AccountingListPage(
       title: 'Gelen Faturalar',
-      subtitle: 'Tedarikçi faturalarını girin, eşleştirin ve kaydedin.',
+      subtitle: 'Tedarikçi E-Faturalarını, E-Arşiv belgelerini ve manuel alış kayıtlarını eşleştirip onaylayın.',
       refreshKey: widget.refreshKey + _localRefresh,
       loader: widget.api.purchaseInvoices,
       createIcon: Icons.receipt_long_outlined,
       searchHint: 'Fatura numarası ara',
-      searchText: (item) => '${item['number']} ${item['status']}',
+      searchText: (item) =>
+          '${item['number']} ${item['status']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
       emptyIcon: Icons.receipt_long_outlined,
       emptyTitle: 'Gelen fatura yok',
       emptyDescription:
@@ -492,6 +493,7 @@ class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
       itemBuilder: (context, item) {
         final status = item['status']?.toString() ?? 'DRAFT';
         return DataRowCard(
+          document: item,
           icon: Icons.receipt_long_outlined,
           title: item['number']?.toString() ?? 'Taslak Alış Faturası',
           subtitle: '${dateText(item['issue_date'])} · ${statusLabel(status)}',
@@ -528,17 +530,19 @@ class SalesReturnsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AccountingListPage(
       title: 'İade Faturaları',
-      subtitle: 'Müşteriden gelen iadeleri cari ve stok etkisiyle izleyin.',
+      subtitle: 'E-Fatura, E-Arşiv ve manuel iade kayıtlarını cari ve stok etkileriyle izleyin.',
       refreshKey: refreshKey,
       loader: () => api.salesInvoices(type: 'IADE'),
       createIcon: Icons.assignment_return_outlined,
       searchHint: 'İade faturası ara',
-      searchText: (item) => '${item['number']} ${item['status']}',
+      searchText: (item) =>
+          '${item['number']} ${item['status']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
       emptyIcon: Icons.assignment_return_outlined,
       emptyTitle: 'İade faturası yok',
       emptyDescription: 'İade faturası kesildiğinde burada listelenir.',
       onCreate: (context) => showSalesInvoiceForm(context, api, type: 'IADE'),
       itemBuilder: (context, item) => DataRowCard(
+        document: item,
         icon: Icons.assignment_return_outlined,
         title: item['number']?.toString() ?? 'İade Faturası',
         subtitle:

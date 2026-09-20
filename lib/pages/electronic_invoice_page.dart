@@ -3,6 +3,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api_client.dart';
 import '../theme.dart';
+import '../document_types.dart';
 import 'invoice_detail_page.dart';
 
 class ElectronicInvoicePage extends StatelessWidget {
@@ -25,7 +26,13 @@ class ElectronicInvoicePage extends StatelessWidget {
         : invoice['uuid'];
     return Scaffold(
       backgroundColor: FinkitColors.canvas,
-      appBar: AppBar(title: const Text('E-Fatura Detayı')),
+      appBar: AppBar(
+        title: Text(
+          documentTypeLabel(invoice).startsWith('Belge türü')
+              ? 'Belge Detayı'
+              : '${documentTypeLabel(invoice)} Detayı',
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

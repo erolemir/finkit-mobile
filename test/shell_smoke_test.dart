@@ -71,7 +71,7 @@ void main() {
       'Tüm Raporlar',
       'Harici Mükellefler',
       'Belgeler',
-      'E-Fatura',
+      'E-Fatura ve E-Arşiv',
       'E-Belgeler',
       'Sohbet',
       'Mail Gönder',

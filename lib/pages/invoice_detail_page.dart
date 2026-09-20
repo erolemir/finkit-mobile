@@ -368,6 +368,8 @@ class InvoiceContent extends StatelessWidget {
                 style: TextStyle(color: Colors.white70),
               ),
               const SizedBox(height: 16),
+              DocumentTypeBadges(document: invoice, dark: true),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -412,6 +414,11 @@ class InvoiceContent extends StatelessWidget {
               const Divider(height: 28),
               _InvoiceRow('Düzenleme tarihi', dateText(invoice['issue_date'])),
               _InvoiceRow('Vade tarihi', dateText(invoice['due_date'])),
+              _InvoiceRow('Belge türü', documentTypeLabel(invoice)),
+              if (invoiceKindLabel(invoice) != null)
+                _InvoiceRow('Fatura işlemi', invoiceKindLabel(invoice)!),
+              if (invoiceProfileLabel(invoice) != null)
+                _InvoiceRow('Senaryo', invoiceProfileLabel(invoice)!),
               _InvoiceRow('Para birimi', currency),
             ],
           ),

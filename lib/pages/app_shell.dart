@@ -319,7 +319,7 @@ class _FinkitShellState extends State<FinkitShell> {
         ),
         MenuEntry(
           title: 'Satış Faturaları',
-          subtitle: 'Kesilen faturalar ve tahsilat durumu',
+          subtitle: 'E-Fatura, E-Arşiv ve manuel satış kayıtları',
           icon: Icons.post_add_rounded,
           builder: (_) => _wrapPage(
             'Satış Faturaları',
@@ -332,7 +332,7 @@ class _FinkitShellState extends State<FinkitShell> {
         ),
         MenuEntry(
           title: 'İade Faturaları',
-          subtitle: 'Cari, stok ve KDV etkisi tersine döner',
+          subtitle: 'E-Fatura, E-Arşiv ve manuel iade kayıtları',
           icon: Icons.assignment_return_outlined,
           builder: (_) => _wrapPage(
             'İade Faturaları',
@@ -396,7 +396,7 @@ class _FinkitShellState extends State<FinkitShell> {
         ),
         MenuEntry(
           title: 'Gelen Faturalar',
-          subtitle: 'Tedarikçi faturaları ve eşleştirme',
+          subtitle: 'E-Fatura, E-Arşiv ve manuel alış kayıtları',
           icon: Icons.inbox_outlined,
           builder: (_) => _wrapPage(
             'Gelen Faturalar',
@@ -600,8 +600,8 @@ class _FinkitShellState extends State<FinkitShell> {
           ),
         ),
         MenuEntry(
-          title: 'E-Fatura',
-          subtitle: 'Giden faturalar ve gelen kutusu',
+          title: 'E-Fatura ve E-Arşiv',
+          subtitle: 'Giden E-Fatura / E-Arşiv ve gelen E-Faturalar',
           icon: Icons.receipt_outlined,
           builder: (_) => EInvoiceListPage(
             api: widget.api,

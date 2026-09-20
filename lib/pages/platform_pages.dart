@@ -829,7 +829,7 @@ class EInvoiceListPage extends StatelessWidget {
       child: Scaffold(
         backgroundColor: FinkitColors.canvas,
         appBar: AppBar(
-          title: const Text('E-Fatura'),
+          title: const Text('E-Fatura ve E-Arşiv'),
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Giden'),
@@ -841,21 +841,25 @@ class EInvoiceListPage extends StatelessWidget {
           children: [
             ApiListPage(
               title: 'Giden Faturalar',
-              subtitle: 'Gönderilen e-fatura ve e-arşiv belgeleri.',
+              subtitle: 'Gönderdiğiniz E-Fatura ve E-Arşiv belgelerini türlerine ve durumlarına göre izleyin.',
               refreshKey: refreshKey,
               loader: isClient
                   ? api.clientEinvoiceInvoices
                   : api.einvoiceInvoices,
               searchHint: 'Fatura, firma veya belge numarası ara',
               searchText: (item) =>
-                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']}',
+                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
               emptyIcon: Icons.upload_file_outlined,
               emptyTitle: 'Giden belge yok',
-              emptyDescription: 'Gönderilmiş e-fatura bulunmuyor.',
+              emptyDescription: 'Gönderilmiş E-Fatura veya E-Arşiv belgesi bulunmuyor.',
               itemBuilder: (context, item) => DataRowCard(
+                document: item,
                 icon: Icons.receipt_long_outlined,
                 title: _text(
-                  item['invoice_number'] ?? item['number'] ?? item['uuid'],
+                  item['invoice_number'] ??
+                      item['document_no'] ??
+                      item['number'] ??
+                      item['uuid'],
                   'Fatura',
                 ),
                 subtitle:
@@ -878,16 +882,17 @@ class EInvoiceListPage extends StatelessWidget {
             ),
             ApiListPage(
               title: 'Gelen Belgeler',
-              subtitle: 'Size kesilen e-faturalar ve yanıt bekleyenler.',
+              subtitle: 'Size gönderilen E-Faturaları ve yanıt bekleyen ticari faturaları görüntüleyin.',
               refreshKey: refreshKey,
               loader: isClient ? api.clientEinvoiceInbox : api.einvoiceInbox,
               searchHint: 'Fatura, firma veya belge numarası ara',
               searchText: (item) =>
-                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']}',
+                  '${item['invoice_number']} ${item['number']} ${item['sender_name']} ${item['receiver_name']} ${item['uuid']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
               emptyIcon: Icons.move_to_inbox_outlined,
               emptyTitle: 'Gelen belge yok',
               emptyDescription: 'Gelen kutusunda belge bulunmuyor.',
               itemBuilder: (context, item) => DataRowCard(
+                document: item,
                 icon: Icons.inbox_outlined,
                 title: _text(
                   item['invoice_number'] ??

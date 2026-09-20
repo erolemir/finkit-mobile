@@ -279,6 +279,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           value: '+${moneyText(invoice['gross_amount'])}',
                           positive: true,
                           status: invoice['payment_status']?.toString(),
+                          document: invoice,
                           onTap: () =>
                               openInvoiceDetail(context, widget.api, invoice),
                         ),

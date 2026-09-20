@@ -522,6 +522,7 @@ class DespatchListPage extends StatelessWidget {
         emptyTitle: 'İrsaliye yok',
         emptyDescription: 'Kayıtlı e-irsaliye bulunmuyor.',
         itemBuilder: (context, item) => DataRowCard(
+          document: {'document_type': 'EDESPATCH', ...item},
           icon: Icons.local_shipping_outlined,
           title: _t(
             item['despatch_number'] ?? item['number'] ?? item['uuid'],

@@ -17,3 +17,10 @@
 - Verilen hesaplarla ana sunucuda giriş başarılı; muhasebe fatura listeleri boş. Test sunucusunda mükellef girişi başarılı, müşavir girişi reddedildi. Gerçek hesapların faturalarını onaylayan/yazan bir test yapılmadı.
 - APK mevcut test sunucusu varsayılanını korur; kayıtlı sunucu seçimi değişmez. Ana sunucu hesapları için giriş/ayarlar bölümünde `https://finkit.com.tr/api` seçilmelidir.
 - Orijinal e-fatura görünümü sağlayıcının içerik döndürmesine bağlıdır. Boş hesaplarla gerçek belge üzerinde doğrulanamadı; fiziksel telefonda klavye ve WebView kontrolü gerekir.
+
+## 1.7.1 — Belge türlerinin görünürlüğü
+
+- E-Fatura, E-Arşiv, E-SMM, E-Müstahsil ve E-İrsaliye türleri sunucunun belge/kaynak/senaryo alanlarına göre etiketlenir. Manuel kayıt ve türü henüz belirlenmemiş belgeler açıkça ayrılır.
+- Tür rozetleri elektronik gelen/giden, satış, alış, iade, gider özeti ve ana ekran kartlarında yer alır. Detaylarda fatura işlemi (satış/iade/tevkifat/istisna) ve temel/ticari senaryo ayrı gösterilir.
+- Sayfa başlıkları, açıklamalar ve menü açıklamaları kapsanan belge türlerini belirtir. E-fatura bölümünün adı E-Fatura ve E-Arşiv olarak güncellendi.
+- Yeni DB sorgusu veya bağlantısı eklenmedi; mevcut API alanları kullanılır.
