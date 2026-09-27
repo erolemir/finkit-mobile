@@ -154,45 +154,57 @@ void main() {
         api.calls.last['end'],
         DateTime(now.year, now.month, 0).toIso8601String().substring(0, 10),
       );
+      await tester.tap(find.text('Bu çeyrek'));
+      await tester.pumpAndSettle();
+      expect(
+        api.calls.last['start'],
+        DateTime(
+          now.year,
+          ((now.month - 1) ~/ 3) * 3 + 1,
+        ).toIso8601String().substring(0, 10),
+      );
+      await tester.tap(find.byTooltip('Raporu dışa aktar'));
+      await tester.pumpAndSettle();
+      expect(find.text('Excel indir'), findsOneWidget);
+      expect(find.text('PDF indir'), findsOneWidget);
+      await tester.tapAt(const Offset(20, 400));
+      await tester.pumpAndSettle();
       await tester.drag(find.byType(ListView), const Offset(0, -600));
       await tester.pumpAndSettle();
       expect(find.text('2026-09'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets(
-    'library search opens selected report',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      String? opened;
-      final api = FinkitApi()..demoMode = true;
-      await tester.pumpWidget(
-        RepaintBoundary(
-          key: const ValueKey('capture'),
-          child: MaterialApp(
-            theme: buildFinkitTheme(),
-            home: Scaffold(
-              body: ReportsPage(
-                api: api,
-                refreshKey: 0,
-                onOpenReport: (r) => opened = r,
-              ),
+  testWidgets('library search opens selected report', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    String? opened;
+    final api = FinkitApi()..demoMode = true;
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: const ValueKey('capture'),
+        child: MaterialApp(
+          theme: buildFinkitTheme(),
+          home: Scaffold(
+            body: ReportsPage(
+              api: api,
+              refreshKey: 0,
+              onOpenReport: (r) => opened = r,
             ),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
-      await capture(tester, 'report-library');
-      await tester.enterText(find.byType(TextField), 'stok');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Stok Raporu'));
-      await tester.pumpAndSettle();
-      expect(opened, 'stock');
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    await capture(tester, 'report-library');
+    await tester.enterText(find.byType(TextField), 'stok');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stok Raporu'));
+    await tester.pumpAndSettle();
+    expect(opened, 'stock');
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'expense stays usable above keyboard and prevents duplicate save',
     (tester) async {

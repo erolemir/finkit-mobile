@@ -1,9 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -535,184 +532,6 @@ class DespatchListPage extends StatelessWidget {
           status: item['status']?.toString(),
         ),
       ),
-    );
-  }
-}
-
-/// Yerel not defteri (cihazda saklanır).
-class NotesPage extends StatefulWidget {
-  const NotesPage({super.key});
-
-  @override
-  State<NotesPage> createState() => _NotesPageState();
-}
-
-class _NotesPageState extends State<NotesPage> {
-  static const _key = 'finkit_notes';
-  List<Map<String, dynamic>> _notes = const [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    List<Map<String, dynamic>> notes = const [];
-    if (raw != null) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          notes = decoded
-              .whereType<Map>()
-              .map((item) => Map<String, dynamic>.from(item))
-              .toList();
-        }
-      } catch (_) {
-        // Bozuk kayıt varsa notlar boş kabul edilir.
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _notes = notes;
-      _loading = false;
-    });
-  }
-
-  Future<void> _save() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, jsonEncode(_notes));
-  }
-
-  Future<void> _add() async {
-    final title = TextEditingController();
-    final body = TextEditingController();
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: FinkitColors.canvas,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          0,
-          20,
-          MediaQuery.viewInsetsOf(sheetContext).bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Yeni Not',
-              style: Theme.of(sheetContext).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: title,
-              decoration: const InputDecoration(
-                labelText: 'Başlık',
-                prefixIcon: Icon(Icons.title_rounded),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: body,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: 'Not',
-                alignLabelWithHint: true,
-                prefixIcon: Icon(Icons.notes_rounded),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (title.text.trim().isEmpty && body.text.trim().isEmpty) {
-                    return;
-                  }
-                  Navigator.pop(sheetContext, true);
-                },
-                child: const Text('Kaydet'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (saved == true) {
-      setState(() {
-        _notes = [
-          {
-            'title': title.text.trim().isEmpty ? 'Not' : title.text.trim(),
-            'body': body.text.trim(),
-            'created_at': DateTime.now().toIso8601String(),
-          },
-          ..._notes,
-        ];
-      });
-      await _save();
-    }
-    title.dispose();
-    body.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FinkitColors.canvas,
-      appBar: AppBar(title: const Text('Not Defteri')),
-      body: _loading
-          ? const LoadingState()
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 90),
-              children: [
-                PageTitle(
-                  title: 'Not Defteri',
-                  subtitle: '${_notes.length} not · cihazınızda saklanır.',
-                  trailing: IconButton.filled(
-                    onPressed: _add,
-                    style: IconButton.styleFrom(
-                      backgroundColor: FinkitColors.ink,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.add_rounded),
-                  ),
-                ),
-                if (_notes.isEmpty)
-                  const EmptyState(
-                    icon: Icons.sticky_note_2_outlined,
-                    title: 'Not yok',
-                    description: 'Sağ üstteki + ile ilk notunuzu ekleyin.',
-                  )
-                else
-                  ..._notes.map(
-                    (note) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: DataRowCard(
-                        icon: Icons.sticky_note_2_outlined,
-                        title: _t(note['title'], 'Not'),
-                        subtitle: _t(note['body'], ''),
-                        value: dateText(note['created_at']),
-                        valueSubtitle: 'Tarih',
-                        onTap: () async {
-                          setState(
-                            () => _notes = _notes
-                                .where((n) => n != note)
-                                .toList(),
-                          );
-                          await _save();
-                        },
-                      ),
-                    ),
-                  ),
-              ],
-            ),
     );
   }
 }
@@ -1285,6 +1104,30 @@ class _DanismaQuestionPageState extends State<DanismaQuestionPage> {
   }
 }
 
+bool isTrustedPaytrPaymentUrl(String value) {
+  final url = Uri.tryParse(value);
+  return url != null &&
+      url.scheme == 'https' &&
+      url.host == 'www.paytr.com' &&
+      url.port == 443 &&
+      url.path == '/odeme' &&
+      url.userInfo.isEmpty &&
+      !url.hasQuery &&
+      !url.hasFragment;
+}
+
+void clearSensitivePaytrFields(Map<String, dynamic> fields) {
+  fields.removeWhere(
+    (key, _) => const {
+      'cc_owner',
+      'card_number',
+      'expiry_month',
+      'expiry_year',
+      'cvv',
+    }.contains(key),
+  );
+}
+
 /// PayTR ödeme formunu uygulama içinde açar (kart bilgisi backend'e gitmez).
 Future<void> startInAppPayment(
   BuildContext context,
@@ -1292,42 +1135,77 @@ Future<void> startInAppPayment(
   int? extraChargeId,
 }) async {
   final messenger = ScaffoldMessenger.of(context);
+  CardEntryResult? entry;
   try {
     // Kart bilgileri yalnızca cihazda alınır ve doğrudan PayTR'ye gönderilir.
-    final entry = await showCardEntrySheet(context, amount: 0);
+    entry = await showCardEntrySheet(context, amount: 0);
     if (entry == null || !context.mounted) return;
+    final selectedCard = entry;
 
     final prepared = await api.preparePayment(
       paymentPurpose: extraChargeId == null ? 'monthly_fee' : 'extra_charge',
       extraChargeId: extraChargeId,
-      storeCard: entry.storeCard,
+      storeCard: selectedCard.storeCard,
     );
     final postUrl = prepared['post_url']?.toString();
     final fields = prepared['fields'];
-    if (postUrl == null || postUrl.isEmpty || fields is! Map) {
+    if (postUrl == null ||
+        !isTrustedPaytrPaymentUrl(postUrl) ||
+        fields is! Map) {
       throw Exception(prepared['message']?.toString() ?? 'Ödeme başlatılamadı');
+    }
+    final transactionId = prepared['transaction_id']?.toString() ?? '';
+    if (transactionId.isEmpty) {
+      throw ApiException('Ödeme takip numarası alınamadı');
     }
     if (!context.mounted) return;
 
+    final checkoutFields = {
+      ...Map<String, dynamic>.from(fields),
+      ...selectedCard.cardFields,
+    };
+    selectedCard.cardFields.clear();
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => PaymentCheckoutPage(
           title: 'Ödeme',
           postUrl: postUrl,
-          fields: {...Map<String, dynamic>.from(fields), ...entry.cardFields},
+          fields: checkoutFields,
           returnUrl: '/paytr/3d-result',
         ),
       ),
     );
-    if (result == 'paid') {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Ödemeniz alındı, teşekkürler!')),
-      );
+    if (!context.mounted) return;
+    if (result != null) {
+      final status = await api.waitForPaymentOutcome(transactionId);
+      if (!context.mounted) return;
+      if (status == 'SUCCESS') {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Ödemeniz doğrulandı, teşekkürler!')),
+        );
+      } else if (status == 'FAILED') {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Ödeme tamamlanamadı.')),
+        );
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              status == 'REFUNDED' ? 'Ödeme iade edildi.' : 'Ödeme sonucu henüz kesinleşmedi. Ödemelerim bölümünü kontrol edin.',
+            ),
+          ),
+        );
+      }
     }
   } catch (error) {
     // Ödeme başlatılamazsa kullanıcı web paneline yönlendirilir.
-    messenger.showSnackBar(SnackBar(content: Text(error.toString())));
-    if (context.mounted) await openWebPanel(context, api);
+    entry?.cardFields.clear();
+    if (context.mounted) {
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+      await openWebPanel(context, api);
+    }
+  } finally {
+    entry?.cardFields.clear();
   }
 }
 
@@ -1335,6 +1213,7 @@ Future<void> startInAppPayment(
 Future<CardEntryResult?> showCardEntrySheet(
   BuildContext context, {
   required double amount,
+  bool registration = false,
 }) {
   final owner = TextEditingController();
   final number = TextEditingController();
@@ -1342,14 +1221,21 @@ Future<CardEntryResult?> showCardEntrySheet(
   final year = TextEditingController();
   final cvv = TextEditingController();
   final formKey = GlobalKey<FormState>();
-  var storeCard = false;
+  var storeCard = registration;
 
   return showModalBottomSheet<CardEntryResult>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     backgroundColor: FinkitColors.canvas,
-    builder: (sheetContext) => StatefulBuilder(
+    builder: (sheetContext) => _CardEntrySheetLifecycle(
+      onDispose: () {
+        owner.dispose();
+        number.dispose();
+        month.dispose();
+        year.dispose();
+        cvv.dispose();
+      },
       builder: (sheetContext, setSheetState) => Padding(
         padding: EdgeInsets.fromLTRB(
           20,
@@ -1370,7 +1256,9 @@ Future<CardEntryResult?> showCardEntrySheet(
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  amount > 0
+                  registration
+                      ? 'Kart doğrulama için küçük bir tutar alınır ve iade edilir. Kart bilgileriniz yalnızca PayTR ile paylaşılır.'
+                      : amount > 0
                       ? 'Ödenecek tutar: ${moneyText(amount)}'
                       : 'Kart bilgileriniz yalnızca PayTR ile paylaşılır.',
                   style: Theme.of(sheetContext).textTheme.bodySmall,
@@ -1450,23 +1338,24 @@ Future<CardEntryResult?> showCardEntrySheet(
                   ],
                 ),
                 const SizedBox(height: 8),
-                CheckboxListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: storeCard,
-                  onChanged: (value) =>
-                      setSheetState(() => storeCard = value ?? false),
-                  title: const Text(
-                    'Kartımı kaydet',
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
+                if (!registration)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: storeCard,
+                    onChanged: (value) =>
+                        setSheetState(() => storeCard = value ?? false),
+                    title: const Text(
+                      'Kartımı kaydet',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Sonraki ödemelerde kart bilgisi girmeden ödeyebilirsiniz.',
+                      style: TextStyle(fontSize: 11.5),
                     ),
                   ),
-                  subtitle: const Text(
-                    'Sonraki ödemelerde kart bilgisi girmeden ödeyebilirsiniz.',
-                    style: TextStyle(fontSize: 11.5),
-                  ),
-                ),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
@@ -1491,7 +1380,11 @@ Future<CardEntryResult?> showCardEntrySheet(
                       );
                     },
                     icon: const Icon(Icons.lock_rounded, size: 18),
-                    label: const Text('Güvenli Ödemeye Devam Et'),
+                    label: Text(
+                      registration
+                          ? 'Kartı Doğrula ve Kaydet'
+                          : 'Güvenli Ödemeye Devam Et',
+                    ),
                   ),
                 ),
               ],
@@ -1500,13 +1393,32 @@ Future<CardEntryResult?> showCardEntrySheet(
         ),
       ),
     ),
-  ).whenComplete(() {
-    owner.dispose();
-    number.dispose();
-    month.dispose();
-    year.dispose();
-    cvv.dispose();
+  );
+}
+
+class _CardEntrySheetLifecycle extends StatefulWidget {
+  const _CardEntrySheetLifecycle({
+    required this.onDispose,
+    required this.builder,
   });
+
+  final VoidCallback onDispose;
+  final Widget Function(BuildContext, StateSetter) builder;
+
+  @override
+  State<_CardEntrySheetLifecycle> createState() =>
+      _CardEntrySheetLifecycleState();
+}
+
+class _CardEntrySheetLifecycleState extends State<_CardEntrySheetLifecycle> {
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, setState);
 }
 
 /// Kart formu çıktısı: kart alanları ve kartı kaydet tercihi.
@@ -1534,7 +1446,9 @@ class StoredCardsPage extends StatefulWidget {
 
 class _StoredCardsPageState extends State<StoredCardsPage> {
   List<Map<String, dynamic>> _cards = const [];
+  List<Map<String, dynamic>> _instructions = const [];
   bool _loading = true;
+  bool _busy = false;
   String? _error;
 
   @override
@@ -1547,9 +1461,11 @@ class _StoredCardsPageState extends State<StoredCardsPage> {
     setState(() => _loading = true);
     try {
       final cards = await widget.api.storedCards();
+      final instructions = await widget.api.autoPaymentInstructions();
       if (!mounted) return;
       setState(() {
         _cards = cards;
+        _instructions = instructions;
         _loading = false;
         _error = null;
       });
@@ -1562,16 +1478,244 @@ class _StoredCardsPageState extends State<StoredCardsPage> {
     }
   }
 
+  Future<void> _addCard() async {
+    if (_busy) return;
+    final entry = await showCardEntrySheet(
+      context,
+      amount: 0,
+      registration: true,
+    );
+    if (entry == null || !mounted) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Kartı Doğrula'),
+        content: const Text(
+          'Kart kaydı için PayTR küçük bir doğrulama tutarı çeker ve tutar iade edilir. Devam edilsin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Doğrula'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) {
+      entry.cardFields.clear();
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      final prepared = await widget.api.prepareCardRegistration();
+      final postUrl = prepared['post_url']?.toString() ?? '';
+      final transactionId = prepared['transaction_id']?.toString() ?? '';
+      final fields = prepared['fields'];
+      if (!isTrustedPaytrPaymentUrl(postUrl) ||
+          transactionId.isEmpty ||
+          fields is! Map) {
+        throw ApiException('PayTR ödeme adresi doğrulanamadı');
+      }
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final checkoutFields = {
+        ...Map<String, dynamic>.from(fields),
+        ...entry.cardFields,
+      };
+      entry.cardFields.clear();
+      final checkoutResult = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => PaymentCheckoutPage(
+            title: 'Kart Doğrulama',
+            postUrl: postUrl,
+            fields: checkoutFields,
+            returnUrl: '/paytr/3d-result',
+          ),
+        ),
+      );
+      if (!mounted) return;
+      if (checkoutResult == null) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Kart doğrulaması tamamlanmadı.')),
+        );
+        return;
+      }
+      setState(() => _busy = true);
+      final status = await widget.api.waitForPaymentOutcome(transactionId);
+      if (!mounted) return;
+      if (status == 'SUCCESS' || status == 'REFUNDED') {
+        await _load();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Kartınız doğrulandı ve kaydedildi.')),
+        );
+        return;
+      }
+      if (status == 'FAILED') {
+        throw ApiException(
+          'Kart doğrulanamadı. Kart bilgilerini kontrol edin.',
+        );
+      }
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Kart doğrulama sonucu henüz kesinleşmedi. Kart listesini yenileyip kontrol edin.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) messenger.showSnackBar(SnackBar(content: Text('$error')));
+    } finally {
+      entry.cardFields.clear();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _delete(Map<String, dynamic> card) async {
     final ctoken = card['ctoken']?.toString();
     if (ctoken == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Kartı Sil'),
+        content: const Text(
+          'Kayıtlı kart silinsin mi? Bu karta bağlı otomatik ödeme talimatları kapanır.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
     try {
       await widget.api.deleteStoredCard(ctoken);
       messenger.showSnackBar(const SnackBar(content: Text('Kart silindi')));
       await _load();
     } catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _changeAutoPayment(String purpose) async {
+    if (_busy) return;
+    final current = _instructions
+        .where(
+          (item) =>
+              item['payment_purpose'] == purpose && item['is_active'] == true,
+        )
+        .firstOrNull;
+    if (current != null) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Otomatik Ödemeyi Kapat'),
+          content: const Text(
+            'Bu ödeme türünün otomatik ödeme talimatı kapatılsın mı?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Kapat'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      setState(() => _busy = true);
+      try {
+        await widget.api.disableAutoPayment(purpose);
+        await _load();
+      } catch (error) {
+        if (mounted)
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('$error')));
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      return;
+    }
+    if (_cards.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Önce bir kart kaydedin.')));
+      return;
+    }
+    final card = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Otomatik Ödeme Kartı'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final item in _cards)
+              ListTile(
+                title: Text(
+                  '${item['c_brand'] ?? item['card_bank'] ?? 'Kart'} *${item['last_4'] ?? ''}',
+                ),
+                onTap: () => Navigator.pop(context, item),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Vazgeç'),
+          ),
+        ],
+      ),
+    );
+    if (card == null || !mounted) return;
+    final ctoken = '${card['ctoken'] ?? ''}';
+    if (ctoken.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Otomatik Ödemeyi Aç'),
+        content: Text(
+          '${purpose == 'subscription' ? 'Abonelik' : 'Hizmet ücreti'} için seçilen kartla otomatik ödeme talimatı verilsin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Talimat Ver'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await widget.api.enableAutoPayment(purpose, ctoken);
+      await _load();
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -1585,9 +1729,14 @@ class _StoredCardsPageState extends State<StoredCardsPage> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               children: [
-                const PageTitle(
+                PageTitle(
                   title: 'Kartlarım',
-                  subtitle: 'Ödeme sırasında "Kartımı kaydet" derseniz kartınız burada listelenir.',
+                  subtitle: 'Kayıtlı kartlarınızı yönetin ve otomatik ödeme talimatlarını ayarlayın.',
+                  trailing: IconButton.filled(
+                    tooltip: 'Yeni Kart Ekle',
+                    onPressed: _busy ? null : _addCard,
+                    icon: const Icon(Icons.add_card_rounded),
+                  ),
                 ),
                 if (_error != null)
                   _InlineError(message: _error!, onRetry: _load)
@@ -1595,7 +1744,8 @@ class _StoredCardsPageState extends State<StoredCardsPage> {
                   const EmptyState(
                     icon: Icons.credit_card_outlined,
                     title: 'Kayıtlı kart yok',
-                    description: 'Ödeme yaparken kartı kaydetmeyi seçtiğinizde burada görünür.',
+                    description:
+                        'Yeni Kart Ekle ile kartınızı doğrulayabilirsiniz.',
                   )
                 else
                   ..._cards.map((card) {
@@ -1618,10 +1768,44 @@ class _StoredCardsPageState extends State<StoredCardsPage> {
                         subtitle: bank,
                         value: 'Sil',
                         valueSubtitle: '',
-                        onTap: () => _delete(card),
+                        onTap: _busy ? null : () => _delete(card),
                       ),
                     );
                   }),
+                const SectionHeader(title: 'Otomatik Ödeme Ayarları'),
+                for (final purpose in const ['subscription', 'monthly_fee'])
+                  Card(
+                    child: ListTile(
+                      title: Text(
+                        purpose == 'subscription'
+                            ? 'Abonelik'
+                            : 'Hizmet Ücreti',
+                      ),
+                      subtitle: Text(
+                        _instructions.any(
+                              (item) =>
+                                  item['payment_purpose'] == purpose &&
+                                  item['is_active'] == true,
+                            )
+                            ? 'Talimat aktif'
+                            : 'Otomatik ödeme kapalı',
+                      ),
+                      trailing: TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _changeAutoPayment(purpose),
+                        child: Text(
+                          _instructions.any(
+                                (item) =>
+                                    item['payment_purpose'] == purpose &&
+                                    item['is_active'] == true,
+                              )
+                              ? 'Kapat'
+                              : 'Etkinleştir',
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
     );
@@ -1915,11 +2099,15 @@ class PaymentCheckoutPage extends StatefulWidget {
 class _PaymentCheckoutPageState extends State<PaymentCheckoutPage> {
   late final WebViewController _controller;
   bool _finished = false;
-  bool _success = false;
 
   @override
   void initState() {
     super.initState();
+    if (!isTrustedPaytrPaymentUrl(widget.postUrl)) {
+      throw StateError('PayTR ödeme adresi doğrulanamadı');
+    }
+    final checkoutHtml = _checkoutHtml();
+    clearSensitivePaytrFields(widget.fields);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
@@ -1929,27 +2117,19 @@ class _PaymentCheckoutPageState extends State<PaymentCheckoutPage> {
             if (request.url.contains('/paytr/3d-result') ||
                 request.url.contains('/paytr/callback') ||
                 request.url.contains(widget.returnUrl)) {
-              _onReturn(request.url);
+              _onReturn();
               return NavigationDecision.prevent;
             }
             return NavigationDecision.navigate;
           },
         ),
       )
-      ..loadHtmlString(_checkoutHtml());
+      ..loadHtmlString(checkoutHtml);
   }
 
-  void _onReturn(String url) {
+  void _onReturn() {
     if (_finished) return;
-    final lower = url.toLowerCase();
-    final failed =
-        lower.contains('fail') ||
-        lower.contains('error') ||
-        lower.contains('hata');
-    setState(() {
-      _finished = true;
-      _success = !failed;
-    });
+    setState(() => _finished = true);
   }
 
   String _escape(String value) => value
@@ -1993,28 +2173,18 @@ class _PaymentCheckoutPageState extends State<PaymentCheckoutPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _success
-                          ? Icons.check_circle_rounded
-                          : Icons.error_outline_rounded,
-                      size: 56,
-                      color: _success
-                          ? FinkitColors.success
-                          : FinkitColors.danger,
-                    ),
+                    const Icon(Icons.hourglass_top_rounded, size: 56),
                     const SizedBox(height: 14),
-                    Text(
-                      _success ? 'Ödeme alındı' : 'Ödeme tamamlanamadı',
-                      style: const TextStyle(
+                    const Text(
+                      'İşlem sonucu kontrol edilecek',
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      _success
-                          ? 'Ödemeniz kaydedildi; makbuz bildirimi gönderilecek.'
-                          : 'Kart bilgilerini kontrol edip tekrar deneyebilirsiniz.',
+                    const Text(
+                      'PayTR sayfasından dönüldü. Sonuç sunucudan doğrulanacak.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: FinkitColors.muted,
@@ -2025,11 +2195,8 @@ class _PaymentCheckoutPageState extends State<PaymentCheckoutPage> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () => Navigator.pop(
-                          context,
-                          _success ? 'paid' : 'failed',
-                        ),
-                        child: const Text('Kapat'),
+                        onPressed: () => Navigator.pop(context, 'returned'),
+                        child: const Text('Sonucu Kontrol Et'),
                       ),
                     ),
                   ],

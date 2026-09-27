@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,7 +16,16 @@ class ApiException implements Exception {
 }
 
 class FinkitApi {
-  static const defaultBaseUrl = 'https://test.finkit.com.tr/api';
+  /// Release builds use production unless explicitly built as a test artifact.
+  static const fixedServerBuild = bool.fromEnvironment('dart.vm.product');
+  static const productionBuild =
+      fixedServerBuild && !bool.fromEnvironment('FINKIT_TEST_BUILD');
+  static const defaultBaseUrl = productionBuild
+      ? 'https://finkit.com.tr/api'
+      : String.fromEnvironment(
+          'FINKIT_API_BASE_URL',
+          defaultValue: 'https://test.finkit.com.tr/api',
+        );
   static const _tokenKey = 'finkit_token';
   static const _refreshTokenKey = 'finkit_refresh_token';
   static const _roleKey = 'finkit_role';
@@ -34,11 +44,21 @@ class FinkitApi {
 
   Future<void> restore() async {
     final prefs = await SharedPreferences.getInstance();
-    baseUrl = prefs.getString(_baseUrlKey) ?? defaultBaseUrl;
+    final savedBaseUrl = prefs.getString(_baseUrlKey);
+    baseUrl = fixedServerBuild
+        ? defaultBaseUrl
+        : savedBaseUrl ?? defaultBaseUrl;
     token = prefs.getString(_tokenKey);
     refreshToken = prefs.getString(_refreshTokenKey);
     email = prefs.getString(_emailKey);
     role = prefs.getString(_roleKey);
+    if (fixedServerBuild && savedBaseUrl != defaultBaseUrl) {
+      token = null;
+      refreshToken = null;
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_refreshTokenKey);
+      await prefs.setString(_baseUrlKey, defaultBaseUrl);
+    }
   }
 
   /// Arka plan görevleri için kayıtlı oturumla istemci üretir.
@@ -46,8 +66,12 @@ class FinkitApi {
     final prefs = await SharedPreferences.getInstance();
     final storedToken = prefs.getString(_tokenKey);
     if (storedToken == null || storedToken.isEmpty) return null;
+    final savedBaseUrl = prefs.getString(_baseUrlKey);
+    if (fixedServerBuild && savedBaseUrl != defaultBaseUrl) return null;
     final api = FinkitApi();
-    api.baseUrl = prefs.getString(_baseUrlKey) ?? defaultBaseUrl;
+    api.baseUrl = fixedServerBuild
+        ? defaultBaseUrl
+        : savedBaseUrl ?? defaultBaseUrl;
     api.token = storedToken;
     api.refreshToken = prefs.getString(_refreshTokenKey);
     api.email = prefs.getString(_emailKey);
@@ -60,7 +84,9 @@ class FinkitApi {
     required String role,
     required String apiBaseUrl,
   }) async {
-    baseUrl = apiBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
+    baseUrl = fixedServerBuild
+        ? defaultBaseUrl
+        : apiBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
     var effectiveRole = role;
     var response = await http.post(
       Uri.parse('$baseUrl/auth/login?role=$effectiveRole'),
@@ -73,7 +99,7 @@ class FinkitApi {
     final roleMismatch =
         response.statusCode == 403 &&
         (_detail(body) ?? '').toLowerCase().contains('eşleşmiyor');
-    if (roleMismatch) {
+    if (roleMismatch && effectiveRole.toUpperCase() != 'ADMIN') {
       effectiveRole = effectiveRole.toUpperCase() == 'CLIENT'
           ? 'ADVISOR'
           : 'CLIENT';
@@ -173,8 +199,203 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> entity() => _get('/accounting/entity');
 
+  Future<Map<String, dynamic>> vatCalculation({
+    required String startDate,
+    required String endDate,
+  }) => _get(
+    '/accounting/vat-calculation',
+    query: {'start_date': startDate, 'end_date': endDate},
+  );
+
   /// Oturum açan kullanıcının kendi bilgileri (her iki rol için geçerli).
   Future<Map<String, dynamic>> me() => _get('/users/me');
+
+  Future<Map<String, dynamic>> registrationPrecheck(
+    Map<String, dynamic> body,
+  ) => _post('/auth/register/precheck', body);
+
+  Future<Map<String, dynamic>> registerAccount(
+    String role,
+    Map<String, dynamic> body,
+  ) => _post(
+    role == 'CLIENT' ? '/auth/register/client' : '/auth/register',
+    body,
+  );
+
+  Future<Map<String, dynamic>> resendVerification(String email) =>
+      _post('/auth/resend-verification', {'email': email});
+
+  Future<void> verifyEmailToken(String token) async {
+    final uri = Uri.parse('$baseUrl/auth/verify-email')
+        .replace(queryParameters: {'token': token});
+    final response = await http.get(uri);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        'Doğrulama bağlantısı geçersiz veya süresi dolmuş.',
+        response.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> forgotPassword(String email, String role) =>
+      _post('/auth/forgot-password', {'email': email, 'role': role});
+
+  Future<Map<String, dynamic>> resetPassword(String token, String password) =>
+      _post('/auth/reset-password', {'token': token, 'new_password': password});
+
+  Future<Map<String, dynamic>> publicAdvisors({
+    String? city,
+    String? district,
+    int page = 1,
+  }) => _get(
+    '/matching/advisors',
+    query: {
+      if (city != null && city.isNotEmpty) 'city': city,
+      if (district != null && district.isNotEmpty) 'district': district,
+      'page': '$page',
+      'page_size': '12',
+    },
+  );
+
+  Future<Map<String, dynamic>> registerCompanySetup(
+    Map<String, dynamic> body,
+  ) => _post('/company-setup/register', body);
+
+  Future<void> adoptRegistrationSession(
+    Map<String, dynamic> result, {
+    required String email,
+  }) async {
+    final access = result['access_token'];
+    if (access is! String || access.isEmpty) {
+      throw ApiException('Kayıt oturumu oluşturulamadı.');
+    }
+    token = access;
+    refreshToken = result['refresh_token'] as String?;
+    this.email = email.trim();
+    role = 'CLIENT';
+    demoMode = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_baseUrlKey, baseUrl);
+    await prefs.setString(_emailKey, this.email!);
+    await prefs.setString(_roleKey, 'CLIENT');
+    await prefs.setString(_tokenKey, token!);
+    if (refreshToken != null) {
+      await prefs.setString(_refreshTokenKey, refreshToken!);
+    } else {
+      await prefs.remove(_refreshTokenKey);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> subUsers() => _listAny('/sub-users');
+
+  Future<Map<String, dynamic>> subUserModules() => _get('/sub-users/modules');
+
+  Future<Map<String, dynamic>> createSubUser(Map<String, dynamic> body) =>
+      _post('/sub-users', body);
+
+  Future<Map<String, dynamic>> updateSubUser(
+    int id,
+    Map<String, dynamic> body,
+  ) => _patch('/sub-users/$id', body);
+
+  Future<void> deleteSubUser(int id) async {
+    await _delete('/sub-users/$id');
+  }
+
+  Future<Map<String, dynamic>> adminGet(
+    String path, {
+    Map<String, String>? query,
+  }) {
+    if (!path.startsWith('/admin/')) throw ArgumentError.value(path, 'path');
+    return _get(path, query: query);
+  }
+
+  Future<Map<String, dynamic>> adminDanismaQuestions({int page = 1}) => _get(
+    '/danisma/admin/questions',
+    query: {'page': '$page', 'page_size': '30'},
+  );
+
+  Future<Map<String, dynamic>> adminDanismaQuestionPage({
+    int page = 1,
+    String search = '',
+  }) => _get(
+    '/danisma/admin/questions',
+    query: {
+      'page': '$page',
+      'page_size': '20',
+      if (search.isNotEmpty) 'search': search,
+    },
+  );
+
+  Future<Map<String, dynamic>> adminDanismaStats() =>
+      _get('/danisma/admin/stats');
+
+  Future<Map<String, dynamic>> adminDanismaFeedback({
+    int page = 1,
+    String feedbackType = '',
+    String refundStatus = '',
+  }) => _get(
+    '/danisma/admin/feedback',
+    query: {
+      'page': '$page',
+      'page_size': '20',
+      if (feedbackType.isNotEmpty) 'feedback_type': feedbackType,
+      if (refundStatus.isNotEmpty) 'refund_status': refundStatus,
+    },
+  );
+
+  Future<Map<String, dynamic>> adminDanismaRefundDecision(
+    int feedbackId, {
+    required String decision,
+    String? note,
+  }) => _patch('/danisma/admin/feedback/$feedbackId/refund', {
+    'decision': decision,
+    if (note != null && note.isNotEmpty) 'admin_note': note,
+  });
+
+  Future<Map<String, dynamic>> adminPost(
+    String path, [
+    Map<String, dynamic> body = const {},
+  ]) {
+    if (!path.startsWith('/admin/')) throw ArgumentError.value(path, 'path');
+    return _post(path, body);
+  }
+
+  Future<Map<String, dynamic>> adminPatch(
+    String path, [
+    Map<String, dynamic> body = const {},
+  ]) {
+    if (!path.startsWith('/admin/')) throw ArgumentError.value(path, 'path');
+    return _patch(path, body);
+  }
+
+  Future<Map<String, dynamic>> adminPut(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    if (!path.startsWith('/admin/')) throw ArgumentError.value(path, 'path');
+    if (demoMode) return DemoData.post(path, body);
+    final response = await _authorized(
+      () => http.put(
+        Uri.parse('$baseUrl$path'),
+        headers: _headers(json: true),
+        body: jsonEncode(body),
+      ),
+    );
+    final decoded = _decode(response);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(decoded) ?? 'İşlem tamamlanamadı',
+        response.statusCode,
+      );
+    }
+    return decoded;
+  }
+
+  Future<void> adminDelete(String path) async {
+    if (!path.startsWith('/admin/')) throw ArgumentError.value(path, 'path');
+    await _delete(path);
+  }
 
   Future<Map<String, dynamic>> summary({
     String? startDate,
@@ -200,16 +421,162 @@ class FinkitApi {
     query: {'page_size': '100', 'invoice_type': ?type, 'status': ?status},
   );
 
+  Future<Map<String, dynamic>> salesInvoicePage({
+    int page = 1,
+    String? search,
+    String? status,
+    String? paymentStatus,
+    String? invoiceType,
+    int? partnerId,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/sales-invoices',
+    query: {
+      'page': '$page',
+      'page_size': '25',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (paymentStatus != null && paymentStatus.isNotEmpty)
+        'payment_status': paymentStatus,
+      if (invoiceType != null && invoiceType.isNotEmpty)
+        'invoice_type': invoiceType,
+      if (partnerId != null) 'partner_id': '$partnerId',
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
   Future<List<Map<String, dynamic>>> purchaseInvoices({
     String? type,
     String? status,
   }) => _list(
     '/accounting/purchase-invoices',
-    query: {'page_size': '100', 'invoice_type': ?type, 'status': ?status},
+    query: {'page_size': '200', 'invoice_type': ?type, 'status': ?status},
+  );
+
+  Future<Map<String, dynamic>> purchaseInvoicePage({
+    int page = 1,
+    String? search,
+    String? status,
+    String? paymentStatus,
+    int? supplierId,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/purchase-invoices',
+    query: {
+      'page': '$page',
+      'page_size': '25',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (paymentStatus != null && paymentStatus.isNotEmpty)
+        'payment_status': paymentStatus,
+      if (supplierId != null) 'supplier_id': '$supplierId',
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
+  Future<Map<String, dynamic>> syncPurchaseInbox() => _post(
+    '/accounting/purchase-invoices/sync-inbox?page=0&page_size=50',
+    const {},
   );
 
   Future<List<Map<String, dynamic>>> expenses() =>
       _list('/accounting/expenses', query: {'page_size': '100'});
+
+  Future<List<Map<String, dynamic>>> accountingAttachments(
+    String relatedType,
+    int relatedId,
+  ) => _list(
+    '/accounting/attachments',
+    query: {'related_type': relatedType, 'related_id': '$relatedId'},
+  );
+
+  Future<Map<String, dynamic>> uploadAccountingAttachment({
+    required String relatedType,
+    required int relatedId,
+    required String filePath,
+    required String fileName,
+  }) => _upload(
+    '/accounting/attachments?related_type=${Uri.encodeQueryComponent(relatedType)}&related_id=$relatedId',
+    fields: const {},
+    fileField: 'file',
+    filePath: filePath,
+    fileName: fileName,
+  );
+
+  Future<Uint8List> downloadAccountingAttachment(int attachmentId) async {
+    if (demoMode) return Uint8List(0);
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse('$baseUrl/accounting/attachments/$attachmentId/download'),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Dosya indirilemedi',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> groupedExpenses({
+    int page = 1,
+    String? search,
+    String? paymentStatus,
+    String? startDate,
+    String? endDate,
+    int? categoryId,
+  }) => _get(
+    '/accounting/expenses/grouped',
+    query: {
+      'page': '$page',
+      'page_size': '50',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (paymentStatus != null && paymentStatus.isNotEmpty)
+        'payment_status': paymentStatus,
+      if (startDate != null) 'start_date': startDate,
+      if (endDate != null) 'end_date': endDate,
+      if (categoryId != null) 'category_id': '$categoryId',
+    },
+  );
+
+  Future<Map<String, dynamic>> incomeInvoiceGroups({
+    int page = 1,
+    String? search,
+    String? paymentStatus,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/sales-invoices',
+    query: {
+      'page': '$page',
+      'page_size': '50',
+      'recognized_only': 'true',
+      'include_lines': 'true',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (paymentStatus != null && paymentStatus.isNotEmpty)
+        'payment_status': paymentStatus,
+      if (startDate != null) 'start_date': startDate,
+      if (endDate != null) 'end_date': endDate,
+    },
+  );
+
+  Future<Map<String, dynamic>> createExpenseRecord(Map<String, dynamic> body) =>
+      _post('/accounting/expenses', body);
+
+  Future<Map<String, dynamic>> updateExpenseRecord(
+    int id,
+    Map<String, dynamic> body,
+  ) => _patch('/accounting/expenses/$id', body);
+
+  Future<void> deleteExpenseRecord(int id) async {
+    await _delete('/accounting/expenses/$id');
+  }
 
   Future<List<Map<String, dynamic>>> accounts() =>
       _list('/accounting/financial-accounts');
@@ -239,6 +606,37 @@ class FinkitApi {
     },
   );
 
+  Future<Uint8List> exportReport(
+    String report, {
+    required String format,
+    required String startDate,
+    required String endDate,
+    String basis = 'accrual',
+  }) async {
+    if (!const {'xlsx', 'pdf'}.contains(format)) {
+      throw ApiException('Desteklenmeyen rapor biçimi');
+    }
+    if (demoMode) throw ApiException('Demo raporu dışa aktarılamaz');
+    final uri = Uri.parse('$baseUrl/accounting/reports/$report/export').replace(
+      queryParameters: {
+        'format': format,
+        'start_date': report == 'aging' ? endDate : startDate,
+        'end_date': endDate,
+        'basis': basis,
+      },
+    );
+    final response = await _authorized(
+      () => http.get(uri, headers: _headers()),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Rapor indirilemedi',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
   Future<Map<String, dynamic>> createExpense({
     required String description,
     required double netAmount,
@@ -259,16 +657,67 @@ class FinkitApi {
     required int partnerId,
     required double amount,
     int? accountId,
-  }) => _post('/accounting/collections', {
-    'partner_id': partnerId,
-    'collection_date': _today(),
-    'amount': amount,
-    'currency': 'TRY',
-    'exchange_rate': 1,
-    'payment_method': 'HAVALE',
-    'financial_account_id': ?accountId,
-    'allocations': const [],
-  });
+    String? collectionDate,
+    String paymentMethod = 'HAVALE',
+    String? referenceNo,
+    String? notes,
+    int? invoiceId,
+    String? idempotencyKey,
+  }) => _post(
+    '/accounting/collections',
+    {
+      'partner_id': partnerId,
+      'collection_date': collectionDate ?? _today(),
+      'amount': amount,
+      'currency': 'TRY',
+      'exchange_rate': 1,
+      'payment_method': paymentMethod,
+      'financial_account_id': ?accountId,
+      'reference_no': ?referenceNo,
+      'notes': ?notes,
+      'allocations': invoiceId == null
+          ? const []
+          : [
+              {'invoice_id': invoiceId, 'amount': amount},
+            ],
+    },
+    headers: idempotencyKey == null
+        ? null
+        : {'Idempotency-Key': idempotencyKey},
+  );
+
+  Future<Map<String, dynamic>> updateCollection(
+    int id,
+    Map<String, dynamic> body,
+  ) => _patch('/accounting/collections/$id', body);
+
+  Future<void> deleteCollection(int id) async {
+    await _delete('/accounting/collections/$id');
+  }
+
+  Future<Map<String, dynamic>> collectionPage({
+    int page = 1,
+    String? search,
+    int? partnerId,
+    String? paymentMethod,
+    int? financialAccountId,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/collections',
+    query: {
+      'page': '$page',
+      'page_size': '20',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (partnerId != null) 'partner_id': '$partnerId',
+      if (paymentMethod != null && paymentMethod.isNotEmpty)
+        'payment_method': paymentMethod,
+      if (financialAccountId != null)
+        'financial_account_id': '$financialAccountId',
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
 
   Future<Map<String, dynamic>> createPartner({
     required String code,
@@ -291,6 +740,13 @@ class FinkitApi {
     'currency': 'TRY',
   });
 
+  Future<Map<String, dynamic>> updatePartner(
+    int id,
+    Map<String, dynamic> changes,
+  ) => _patch('/accounting/partners/$id', changes);
+
+  Future<void> archivePartner(int id) => _delete('/accounting/partners/$id');
+
   /// Cari kartını adres, yetkili, IBAN ve açılış bakiyesiyle birlikte oluşturur.
   Future<Map<String, dynamic>> createPartnerRecord(
     Map<String, dynamic> payload,
@@ -298,6 +754,19 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> partner(int partnerId) =>
       _get('/accounting/partners/$partnerId');
+
+  Future<Map<String, dynamic>> partnerInvoiceOverview(
+    int partnerId, {
+    int outgoingPage = 1,
+    int incomingPage = 1,
+  }) => _get(
+    '/accounting/partners/$partnerId/invoice-overview',
+    query: {
+      'outgoing_page': '$outgoingPage',
+      'incoming_page': '$incomingPage',
+      'page_size': '20',
+    },
+  );
 
   Future<Map<String, dynamic>> createSalesInvoice({
     required int partnerId,
@@ -318,17 +787,85 @@ class FinkitApi {
     'lines': lines,
   });
 
+  Future<Map<String, dynamic>> createSalesInvoiceRecord(
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) => _post(
+    '/accounting/sales-invoices',
+    body,
+    headers: idempotencyKey == null
+        ? null
+        : {'Idempotency-Key': idempotencyKey},
+  );
+
   Future<Map<String, dynamic>> finalizeSalesInvoice(int invoiceId) =>
       _post('/accounting/sales-invoices/$invoiceId/finalize', const {});
 
   Future<Map<String, dynamic>> cancelSalesInvoice(int invoiceId) =>
       _post('/accounting/sales-invoices/$invoiceId/cancel', const {});
 
+  Future<Map<String, dynamic>> copySalesInvoice(int invoiceId) =>
+      _post('/accounting/sales-invoices/$invoiceId/copy', const {});
+
+  Future<Map<String, dynamic>> linkSalesInvoiceDespatch(
+    int invoiceId,
+    String despatchUuid,
+  ) => _post('/accounting/sales-invoices/$invoiceId/despatch', {
+    'despatch_uuid': despatchUuid,
+  });
+
   Future<List<Map<String, dynamic>>> products() =>
       _list('/accounting/products', query: {'page_size': '200'});
 
+  Future<List<Map<String, dynamic>>> searchProducts(String search) => _list(
+    '/accounting/products',
+    query: {'search': search, 'is_active': 'true', 'page_size': '50'},
+  );
+
+  Future<List<Map<String, dynamic>>> searchPartners(String search) => _list(
+    '/accounting/partners',
+    query: {'search': search, 'is_active': 'true', 'page_size': '50'},
+  );
+
+  Future<Map<String, dynamic>> product(int id) =>
+      _get('/accounting/products/$id');
+
+  Future<Map<String, dynamic>> productStockDetail(int id) =>
+      _get('/accounting/products/$id/stock-detail');
+
+  Future<Map<String, dynamic>> updateProduct(
+    int id,
+    Map<String, dynamic> changes,
+  ) => _patch('/accounting/products/$id', changes);
+
+  Future<void> deleteProduct(int id) => _delete('/accounting/products/$id');
+
   Future<Map<String, dynamic>> salesInvoice(int invoiceId) =>
       _get('/accounting/sales-invoices/$invoiceId');
+
+  Future<Uint8List> accountingInvoiceContent(
+    int invoiceId,
+    String format, {
+    bool purchase = false,
+  }) async {
+    if (!const {'pdf', 'html', 'ubl'}.contains(format)) {
+      throw ArgumentError.value(format, 'format');
+    }
+    final collection = purchase ? 'purchase-invoices' : 'sales-invoices';
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse('$baseUrl/accounting/$collection/$invoiceId/content/$format'),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Fatura belgesi alınamadı',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
 
   // ── Ürün / hizmet ve stok ──────────────────────────────────
   Future<Map<String, dynamic>> createProduct({
@@ -342,6 +879,10 @@ class FinkitApi {
     double manualCost = 0,
     bool trackInventory = true,
     String? barcode,
+    String? description,
+    double minimumStock = 0,
+    bool isActive = true,
+    Map<String, dynamic>? openingStock,
   }) => _post('/accounting/products', {
     'code': code,
     'name': name,
@@ -353,20 +894,33 @@ class FinkitApi {
     'manual_cost': manualCost,
     'track_inventory': trackInventory,
     'barcode': ?barcode,
+    'description': ?description,
+    'minimum_stock': minimumStock,
+    'is_active': isActive,
+    'opening_stock': ?openingStock,
   });
 
   Future<List<Map<String, dynamic>>> warehouses() =>
       _listAny('/accounting/warehouses');
 
+  Future<Map<String, dynamic>> updateWarehouse(
+    int id,
+    Map<String, dynamic> changes,
+  ) => _patch('/accounting/warehouses/$id', changes);
+
   Future<Map<String, dynamic>> createWarehouse({
     required String code,
     required String name,
     String? city,
+    String? district,
+    String? address,
     bool isDefault = false,
   }) => _post('/accounting/warehouses', {
     'code': code,
     'name': name,
     'city': ?city,
+    'district': ?district,
+    'address': ?address,
     'is_default': isDefault,
   });
 
@@ -415,37 +969,37 @@ class FinkitApi {
     query: {'page_size': '100', 'status': ?status},
   );
 
-  Future<Map<String, dynamic>> createQuote({
-    required int partnerId,
-    required String description,
-    required double quantity,
-    required double unitPrice,
-    double vatRate = 20,
-    int? productId,
-    DateTime? validUntil,
-    String? notes,
-  }) => _post('/accounting/quotes', {
-    'partner_id': partnerId,
-    'issue_date': _today(),
-    'valid_until': ?(validUntil == null ? null : _dateValue(validUntil)),
-    'currency': 'TRY',
-    'exchange_rate': 1,
-    'notes': ?notes,
-    'lines': [
-      {
-        'product_id': ?productId,
-        'description': description,
-        'quantity': quantity,
-        'unit': 'ADET',
-        'unit_price': unitPrice,
-        'discount_rate': 0,
-        'vat_rate': vatRate,
-      },
-    ],
-  });
+  Future<Map<String, dynamic>> quotePage({
+    int page = 1,
+    String? search,
+    String? status,
+    int? partnerId,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/quotes',
+    query: {
+      'page': '$page',
+      'page_size': '20',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (partnerId != null) 'partner_id': '$partnerId',
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
+  Future<Map<String, dynamic>> createQuoteRecord(Map<String, dynamic> body) =>
+      _post('/accounting/quotes', body);
 
   Future<Map<String, dynamic>> setQuoteStatus(int quoteId, String status) =>
-      _patch('/accounting/quotes/$quoteId/status', {'status': status});
+      _patch('/accounting/quotes/$quoteId/status?status=$status', const {});
+
+  Future<Map<String, dynamic>> copyQuote(int quoteId, {bool revise = false}) =>
+      _post('/accounting/quotes/$quoteId/copy?revise=$revise', const {});
+
+  Future<Map<String, dynamic>> quoteDetail(int quoteId) =>
+      _get('/accounting/quotes/$quoteId');
 
   Future<Map<String, dynamic>> convertQuote(int quoteId) =>
       _post('/accounting/quotes/$quoteId/convert', const {});
@@ -484,6 +1038,17 @@ class FinkitApi {
     ],
   });
 
+  Future<Map<String, dynamic>> createPurchaseInvoiceRecord(
+    Map<String, dynamic> body, {
+    String? idempotencyKey,
+  }) => _post(
+    '/accounting/purchase-invoices',
+    body,
+    headers: idempotencyKey == null
+        ? null
+        : {'Idempotency-Key': idempotencyKey},
+  );
+
   Future<Map<String, dynamic>> purchaseInvoice(int invoiceId) =>
       _get('/accounting/purchase-invoices/$invoiceId');
 
@@ -497,6 +1062,22 @@ class FinkitApi {
   Future<Map<String, dynamic>> postPurchaseInvoice(int invoiceId) =>
       _post('/accounting/purchase-invoices/$invoiceId/post', const {});
 
+  Future<Map<String, dynamic>> stockifyPurchaseInvoice(
+    int invoiceId,
+    List<Map<String, dynamic>> lines,
+  ) => _post('/accounting/purchase-invoices/$invoiceId/stockify', {
+    'lines': lines,
+  });
+
+  Future<Map<String, dynamic>> expensifyPurchaseInvoice(
+    int invoiceId,
+    List<int> lineIds, {
+    int? categoryId,
+  }) => _post('/accounting/purchase-invoices/$invoiceId/expensify', {
+    'line_ids': lineIds,
+    if (categoryId != null) 'category_id': categoryId,
+  });
+
   Future<List<Map<String, dynamic>>> expenseCategories() =>
       _listAny('/accounting/expense-categories');
 
@@ -505,6 +1086,27 @@ class FinkitApi {
     String? code,
   }) => _post('/accounting/expense-categories', {'name': name, 'code': ?code});
 
+  Future<Map<String, dynamic>> updateExpenseCategory(
+    int id,
+    Map<String, dynamic> changes,
+  ) => _patch('/accounting/expense-categories/$id', changes);
+
+  Future<List<Map<String, dynamic>>> exchangeRates({
+    String? currency,
+    String? startDate,
+    String? endDate,
+  }) => _listAny(
+    '/accounting/exchange-rates',
+    query: {
+      if (currency != null && currency.isNotEmpty) 'currency': currency,
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
+  Future<Map<String, dynamic>> fetchTcmbRates(String rateDate) =>
+      _post('/accounting/exchange-rates/tcmb?rate_date=$rateDate', const {});
+
   // ── Tahsilat / ödeme ───────────────────────────────────────
   Future<List<Map<String, dynamic>>> collections() =>
       _list('/accounting/collections', query: {'page_size': '100'});
@@ -512,33 +1114,81 @@ class FinkitApi {
   Future<List<Map<String, dynamic>>> supplierPayments() =>
       _list('/accounting/supplier-payments', query: {'page_size': '100'});
 
+  Future<Map<String, dynamic>> supplierPaymentPage({
+    int page = 1,
+    String? search,
+    int? supplierId,
+    String? paymentMethod,
+    int? financialAccountId,
+    String? startDate,
+    String? endDate,
+  }) => _get(
+    '/accounting/supplier-payments',
+    query: {
+      'page': '$page',
+      'page_size': '20',
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (supplierId != null) 'supplier_id': '$supplierId',
+      if (paymentMethod != null && paymentMethod.isNotEmpty)
+        'payment_method': paymentMethod,
+      if (financialAccountId != null)
+        'financial_account_id': '$financialAccountId',
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
   Future<Map<String, dynamic>> createSupplierPayment({
     required int supplierId,
     required double amount,
     int? accountId,
-  }) => _post('/accounting/supplier-payments', {
-    'supplier_id': supplierId,
-    'payment_date': _today(),
-    'amount': amount,
-    'currency': 'TRY',
-    'exchange_rate': 1,
-    'payment_method': 'HAVALE',
-    'financial_account_id': ?accountId,
-    'allocations': const [],
-  });
+    String? paymentDate,
+    String paymentMethod = 'HAVALE',
+    String? referenceNo,
+    String? notes,
+    int? invoiceId,
+    List<Map<String, dynamic>>? allocations,
+    String? idempotencyKey,
+  }) => _post(
+    '/accounting/supplier-payments',
+    {
+      'supplier_id': supplierId,
+      'payment_date': paymentDate ?? _today(),
+      'amount': amount,
+      'currency': 'TRY',
+      'exchange_rate': 1,
+      'payment_method': paymentMethod,
+      'financial_account_id': ?accountId,
+      'reference_no': ?referenceNo,
+      'notes': ?notes,
+      'allocations':
+          allocations ??
+          (invoiceId == null
+              ? const []
+              : [
+                  {'invoice_id': invoiceId, 'amount': amount},
+                ]),
+    },
+    headers: idempotencyKey == null
+        ? null
+        : {'Idempotency-Key': idempotencyKey},
+  );
 
   Future<Map<String, dynamic>> createFinancialAccount({
     required String name,
     String type = 'CASH',
     String? bankName,
+    String? branchName,
     String? iban,
+    String currency = 'TRY',
     double openingBalance = 0,
   }) => _post('/accounting/financial-accounts', {
     'name': name,
     'account_type': type,
     'bank_name': ?bankName,
+    'branch_name': ?branchName,
     'iban': ?iban,
-    'currency': 'TRY',
+    'currency': currency,
     'opening_balance': openingBalance,
   });
 
@@ -745,6 +1395,9 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> advisorProfile() => _get('/advisors/me');
 
+  Future<Map<String, dynamic>> setAdvisorReminderTemplate(int? templateId) =>
+      _patch('/advisors/me', {'payment_reminder_template_id': templateId});
+
   // ── Belgeler ───────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> allDocuments() => _list('/documents/all');
 
@@ -770,8 +1423,78 @@ class FinkitApi {
     fileName: fileName,
   );
 
+  Future<List<Map<String, dynamic>>> uploadDocuments({
+    required int clientId,
+    required String documentType,
+    required List<String> filePaths,
+    String? documentDate,
+  }) async {
+    if (filePaths.isEmpty) throw ArgumentError('En az bir PDF seçin');
+    if (demoMode) return const [];
+    Future<http.Response> send() async {
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/documents/upload'),
+      );
+      request.headers.addAll(_headers());
+      request.fields['client_id'] = '$clientId';
+      request.fields['document_type'] = documentType;
+      if (documentDate != null && documentDate.isNotEmpty) {
+        request.fields['document_date'] = documentDate;
+      }
+      for (final path in filePaths) {
+        request.files.add(await http.MultipartFile.fromPath('files', path));
+      }
+      return http.Response.fromStream(await request.send());
+    }
+
+    final response = await _authorized(send);
+    final body = _decode(response);
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(body) ?? 'Belgeler yüklenemedi',
+        response.statusCode,
+      );
+    }
+    return (body['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   String documentDownloadUrl(int documentId) =>
       '$baseUrl/documents/download/$documentId';
+
+  Future<Uint8List> downloadDocument(int documentId) async {
+    if (demoMode) return Uint8List(0);
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse(documentDownloadUrl(documentId)),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Belge indirilemedi',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
+  Future<String> documentPreviewUrl(int documentId) async {
+    final response = await _get('/documents/preview-url/$documentId');
+    final url = response['preview_url'];
+    final uri = url is String ? Uri.tryParse(url) : null;
+    if (uri == null || !const {'https', 'http'}.contains(uri.scheme)) {
+      throw ApiException('Belge önizlemesi açılamadı');
+    }
+    return uri.toString();
+  }
+
+  Future<void> deleteDocument(int documentId) async {
+    await _delete('/documents/$documentId');
+  }
 
   // ── Ödemeler ───────────────────────────────────────────────
   Future<Map<String, dynamic>> paymentsSummary() => _get('/payments/summary');
@@ -820,19 +1543,355 @@ class FinkitApi {
     return utf8.decode(response.bodyBytes);
   }
 
+  Future<Uint8List> electronicInvoiceContent(
+    String id, {
+    required bool isClient,
+    required bool incoming,
+    required String format,
+  }) async {
+    if (!const {'pdf', 'ubl'}.contains(format)) {
+      throw ArgumentError.value(format, 'format');
+    }
+    final prefix = isClient ? 'client-einvoice' : 'einvoice';
+    final collection = incoming ? 'inbox' : 'invoices';
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse(
+          '$baseUrl/$prefix/$collection/${Uri.encodeComponent(id)}/content/$format',
+        ),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Belge indirilemedi',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
   Future<Map<String, dynamic>> einvoiceAccount() => _get('/einvoice/account');
 
-  Future<List<Map<String, dynamic>>> einvoiceInvoices() =>
-      _list('/einvoice/invoices', query: {'page_size': '50'});
+  Future<Map<String, dynamic>> electronicInvoiceAccount({
+    required bool isClient,
+  }) => _get('${_edocPrefix(isClient)}/account');
+
+  Future<Map<String, dynamic>> saveElectronicInvoiceAccount(
+    Map<String, dynamic> data, {
+    required bool isClient,
+  }) => _put('${_edocPrefix(isClient)}/account', data);
+
+  Future<Map<String, dynamic>> verifyElectronicInvoiceAccount({
+    required bool isClient,
+  }) => _post('${_edocPrefix(isClient)}/account/verify', const {});
+
+  Future<Map<String, dynamic>> setElectronicInvoiceTestAccount(bool active) =>
+      _post(
+        '/einvoice/test-account/${active ? 'activate' : 'deactivate'}',
+        const {},
+      );
+
+  Future<Map<String, dynamic>> checkElectronicInvoiceUser(
+    String identifier, {
+    required bool isClient,
+  }) => _get(
+    '${_edocPrefix(isClient)}/check-user',
+    query: {'identifier': identifier},
+  );
+
+  Future<Map<String, dynamic>> previewElectronicInvoiceNumber({
+    required bool isClient,
+    required String documentType,
+    required String issueDate,
+    String? serie,
+  }) => _get(
+    '${_edocPrefix(isClient)}/number-preview',
+    query: {
+      'document_type': documentType,
+      'issue_date': issueDate,
+      if (serie != null && serie.isNotEmpty) 'serie': serie,
+    },
+  );
+
+  Future<Map<String, dynamic>> submitElectronicInvoice(
+    Map<String, dynamic> payload, {
+    required bool isClient,
+  }) => _post('${_edocPrefix(isClient)}/invoices', payload);
+
+  Future<Map<String, dynamic>> uploadElectronicInvoiceUbl({
+    required bool isClient,
+    required String documentType,
+    required String filePath,
+    String? fileName,
+  }) => _upload(
+    '${_edocPrefix(isClient)}/invoices/upload-ubl',
+    fields: {'document_type': documentType},
+    fileField: 'file',
+    filePath: filePath,
+    fileName: fileName,
+  );
+
+  Future<List<Map<String, dynamic>>> electronicArchiveReportItems({
+    required bool isClient,
+    required String startDate,
+    required String endDate,
+  }) async {
+    final all = <Map<String, dynamic>>[];
+    for (var page = 1; page <= 1000; page++) {
+      final result = await _get(
+        '${_edocPrefix(isClient)}/invoices',
+        query: {
+          'document_type': 'EARCHIVE',
+          'start_date': startDate,
+          'end_date': endDate,
+          'page': '$page',
+          'page_size': '100',
+        },
+      );
+      final items = (result['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+      all.addAll(items);
+      final total = int.tryParse('${result['total']}');
+      if (items.isEmpty ||
+          (total != null && all.length >= total) ||
+          items.length < 100) {
+        return all;
+      }
+    }
+    throw ApiException('E-Arşiv raporu 100.000 belge sınırını aşıyor.');
+  }
+
+  Future<List<Map<String, dynamic>>> electronicInvoiceDrafts(
+    String documentType,
+  ) => _listAny(
+    '/invoice-workspace/drafts',
+    query: {'document_type': documentType, 'limit': '100'},
+  );
+
+  Future<Map<String, dynamic>> saveElectronicInvoiceDraft(
+    Map<String, dynamic> body, {
+    int? id,
+  }) => id == null
+      ? _post('/invoice-workspace/drafts', body)
+      : _putInvoiceDraft(id, body);
+
+  Future<Map<String, dynamic>> _putInvoiceDraft(
+    int id,
+    Map<String, dynamic> body,
+  ) => _put('/invoice-workspace/drafts/$id', body);
+
+  Future<Map<String, dynamic>> _put(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    if (demoMode) return DemoData.post(path, body);
+    final response = await _authorized(
+      () => http.put(
+        Uri.parse('$baseUrl$path'),
+        headers: _headers(json: true),
+        body: jsonEncode(body),
+      ),
+    );
+    final result = _decode(response);
+    if (response.statusCode >= 400)
+      throw ApiException(
+        _detail(result) ?? 'Bilgiler kaydedilemedi',
+        response.statusCode,
+      );
+    return result;
+  }
+
+  Future<void> deleteElectronicInvoiceDraft(int id) async {
+    await _delete('/invoice-workspace/drafts/$id');
+  }
+
+  String _edocPrefix(bool isClient) =>
+      isClient ? '/client-einvoice' : '/einvoice';
+
+  Future<Map<String, dynamic>> electronicInvoiceDetail(
+    String uuid, {
+    required bool isClient,
+    bool refresh = false,
+  }) => _get(
+    '${_edocPrefix(isClient)}/invoices/${Uri.encodeComponent(uuid)}',
+    query: refresh ? {'refresh': 'true'} : null,
+  );
+
+  Future<Map<String, dynamic>> refreshElectronicInvoiceStatus(
+    String uuid, {
+    required bool isClient,
+  }) => _post(
+    '${_edocPrefix(isClient)}/invoices/${Uri.encodeComponent(uuid)}/refresh-status',
+    const {},
+  );
+
+  Future<Map<String, dynamic>> cancelElectronicInvoice(
+    String uuid, {
+    required bool isClient,
+  }) => _post(
+    '${_edocPrefix(isClient)}/invoices/${Uri.encodeComponent(uuid)}/cancel',
+    const {'delete_document': false},
+  );
+
+  Future<Map<String, dynamic>> respondElectronicInvoice(
+    String providerId, {
+    required bool isClient,
+    required String responseType,
+    String description = '',
+  }) => _post(
+    '${_edocPrefix(isClient)}/inbox/${Uri.encodeComponent(providerId)}/response',
+    {'response_type': responseType, 'description': description},
+  );
+
+  Future<List<Map<String, dynamic>>> einvoiceInvoices({String? documentType}) =>
+      _list(
+        '/einvoice/invoices',
+        query: {
+          'page_size': '50',
+          if (documentType != null) 'document_type': documentType,
+        },
+      );
 
   Future<List<Map<String, dynamic>>> einvoiceInbox() =>
       _einvoiceInbox('/einvoice/inbox');
 
+  Future<Map<String, dynamic>> electronicInvoiceBox({
+    required bool isClient,
+    required bool incoming,
+    String documentType = 'EINVOICE',
+    String? status,
+    String? startDate,
+    String? endDate,
+    String? customerIdentifier,
+    int page = 1,
+  }) async {
+    if (page < 1) throw ArgumentError.value(page, 'page');
+    final path = '${_edocPrefix(isClient)}/${incoming ? 'inbox' : 'invoices'}';
+    final result = await _get(
+      path,
+      query: {
+        'page': '${incoming ? page - 1 : page}',
+        'page_size': '20',
+        if (!incoming) 'document_type': documentType,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+        if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+        if (!incoming &&
+            customerIdentifier != null &&
+            customerIdentifier.isNotEmpty)
+          'customer_identifier': customerIdentifier,
+      },
+    );
+    if (!incoming) return result;
+    return {
+      ...result,
+      'items': (result['items'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => {
+              ...Map<String, dynamic>.from(item),
+              'document_type':
+                  item['document_type'] ?? item['documentType'] ?? 'EINVOICE',
+            },
+          )
+          .toList(),
+    };
+  }
+
   Future<List<Map<String, dynamic>>> einvoiceDespatches() =>
       _list('/einvoice/despatches', query: {'page_size': '50'});
 
-  Future<List<Map<String, dynamic>>> clientEinvoiceInvoices() =>
-      _list('/client-einvoice/invoices', query: {'page_size': '50'});
+  String _extraDocumentPath(String kind, {bool incoming = false}) {
+    if (!const {'despatches', 'esmm', 'creditnotes'}.contains(kind)) {
+      throw ArgumentError.value(kind, 'kind');
+    }
+    if (incoming && kind != 'despatches') {
+      throw ArgumentError.value(kind, 'kind');
+    }
+    return '/einvoice/$kind${incoming ? '/inbox' : ''}';
+  }
+
+  Future<Map<String, dynamic>> extraDocuments(
+    String kind, {
+    bool incoming = false,
+    String? status,
+    String? startDate,
+    String? endDate,
+    int page = 1,
+  }) => _get(
+    _extraDocumentPath(kind, incoming: incoming),
+    query: {
+      'page': '${incoming ? page - 1 : page}',
+      'page_size': '20',
+      if (status != null && status.isNotEmpty && !incoming) 'status': status,
+      if (startDate != null && startDate.isNotEmpty) 'start_date': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+    },
+  );
+
+  Future<Map<String, dynamic>> createExtraDocument(
+    String kind,
+    Map<String, dynamic> payload,
+  ) => _post(_extraDocumentPath(kind), payload);
+
+  Future<Map<String, dynamic>> refreshExtraDocument(
+    String kind,
+    String uuid,
+  ) => _post(
+    '${_extraDocumentPath(kind)}/${Uri.encodeComponent(uuid)}/refresh-status',
+    const {},
+  );
+
+  Future<Map<String, dynamic>> cancelExtraDocument(String kind, String uuid) {
+    if (kind == 'despatches') throw ArgumentError.value(kind, 'kind');
+    return _post(
+      '${_extraDocumentPath(kind)}/${Uri.encodeComponent(uuid)}/cancel',
+      const {'delete_document': false},
+    );
+  }
+
+  Future<Uint8List> extraDocumentContent(
+    String kind,
+    String id,
+    String format, {
+    bool incoming = false,
+  }) async {
+    if (!const {'html', 'pdf', 'ubl'}.contains(format)) {
+      throw ArgumentError.value(format, 'format');
+    }
+    final path = _extraDocumentPath(kind, incoming: incoming);
+    final response = await _authorized(
+      () => http.get(
+        Uri.parse('$baseUrl$path/${Uri.encodeComponent(id)}/content/$format'),
+        headers: _headers(),
+      ),
+    );
+    if (response.statusCode >= 400) {
+      throw ApiException(
+        _detail(_decode(response)) ?? 'Belge içeriği alınamadı',
+        response.statusCode,
+      );
+    }
+    return response.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> checkDespatchUser(String identifier) => _get(
+    '/einvoice/check-user',
+    query: {'identifier': identifier, 'document_type': 'DESPATCHADVICE'},
+  );
+
+  Future<List<Map<String, dynamic>>> clientEinvoiceInvoices({
+    String? documentType,
+  }) => _list(
+    '/client-einvoice/invoices',
+    query: {
+      'page_size': '50',
+      if (documentType != null) 'document_type': documentType,
+    },
+  );
 
   // Both inbox endpoints proxy Izibiz's e-invoice inbox, not e-archive.
   Future<List<Map<String, dynamic>>> _einvoiceInbox(String path) async =>
@@ -853,8 +1912,32 @@ class FinkitApi {
   Future<List<Map<String, dynamic>>> calendarEvents() =>
       _list('/calendar/events');
 
-  Future<List<Map<String, dynamic>>> gibTaxCalendar() =>
-      _list('/general/gib-tax-calendar');
+  Future<List<Map<String, dynamic>>> eventTemplates() =>
+      _list('/calendar/templates');
+
+  Future<Map<String, dynamic>> createEventTemplate({
+    required String title,
+    required int daysOffset,
+    String? description,
+    String eventType = 'CLIENT',
+  }) => _post('/calendar/templates', {
+    'title': title,
+    'days_offset': daysOffset,
+    'description': description,
+    'event_type': eventType,
+  });
+
+  Future<void> deleteEventTemplate(int templateId) async {
+    await _delete('/calendar/templates/$templateId');
+  }
+
+  Future<List<Map<String, dynamic>>> gibTaxCalendar({
+    required String startDate,
+    required String endDate,
+  }) => _list(
+    '/general/gib-tax-calendar',
+    query: {'start_date': startDate, 'end_date': endDate},
+  );
 
   Future<List<Map<String, dynamic>>> reminderRules() =>
       _list('/reminder-rules');
@@ -893,18 +1976,61 @@ class FinkitApi {
     required String eventDate,
     String? description,
     String eventType = 'PERSONAL',
+    int? targetClientId,
+    int? targetExternalClientId,
     bool isNotificationActive = true,
   }) => _post('/calendar/events', {
     'title': title,
     'description': ?description,
     'event_date': eventDate,
     'event_type': eventType,
+    'target_client_id': targetClientId,
+    'target_external_client_id': targetExternalClientId,
     'is_notification_active': isNotificationActive,
   });
+
+  Future<Map<String, dynamic>> updateCalendarEvent(
+    int eventId, {
+    required String title,
+    required String eventDate,
+    String? description,
+    String eventType = 'PERSONAL',
+    int? targetClientId,
+    int? targetExternalClientId,
+    bool isNotificationActive = true,
+  }) => _put('/calendar/events/$eventId', {
+    'title': title,
+    'description': description,
+    'event_date': eventDate,
+    'event_type': eventType,
+    'target_client_id': targetClientId,
+    'target_external_client_id': targetExternalClientId,
+    'is_notification_active': isNotificationActive,
+  });
+
+  Future<void> deleteCalendarEvent(int eventId) async {
+    await _delete('/calendar/events/$eventId');
+  }
 
   // ── Diğer modüller ─────────────────────────────────────────
   Future<List<Map<String, dynamic>>> messageTemplates() =>
       _list('/advisors/templates');
+
+  Future<Map<String, dynamic>> saveMessageTemplate({
+    int? id,
+    required String name,
+    required String content,
+    required String type,
+  }) {
+    final body = {'name': name, 'content': content, 'template_type': type};
+    return id == null
+        ? _post('/advisors/templates', body)
+        : _put('/advisors/templates/$id', body);
+  }
+
+  Future<void> deleteMessageTemplate(int id) async {
+    await _delete('/advisors/templates/$id');
+  }
 
   Future<List<Map<String, dynamic>>> supportTickets() =>
       _list('/support/tickets/my');
@@ -1109,6 +2235,42 @@ class FinkitApi {
     'store_card': storeCard,
   });
 
+  Future<Map<String, dynamic>> prepareCardRegistration() =>
+      _post('/paytr/prepare-card-registration', const {'non_3d': false});
+
+  Future<String> paymentStatus(String transactionId) async {
+    final body = await _get(
+      '/paytr/payment-status',
+      query: {'transaction_id': transactionId},
+    );
+    return '${body['status'] ?? 'PENDING'}';
+  }
+
+  Future<String> waitForPaymentOutcome(
+    String transactionId, {
+    int attempts = 7,
+    Duration firstDelay = const Duration(seconds: 2),
+    Duration retryDelay = const Duration(seconds: 3),
+  }) async {
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      await Future<void>.delayed(attempt == 0 ? firstDelay : retryDelay);
+      try {
+        final status = await paymentStatus(transactionId);
+        if (const {
+          'SUCCESS',
+          'FAILED',
+          'REFUNDED',
+          'PARTIALLY_REFUNDED',
+        }.contains(status)) {
+          return status;
+        }
+      } catch (_) {
+        // Callback gecikmesi veya geçici ağ kesintisi sonraki sorguda çözülür.
+      }
+    }
+    return 'PENDING';
+  }
+
   /// Kayıtlı (tokenize) kartlar; yalnız mükellef rolünde doludur.
   Future<List<Map<String, dynamic>>> storedCards() async {
     final body = await _get('/paytr/stored-cards');
@@ -1123,7 +2285,38 @@ class FinkitApi {
   }
 
   Future<void> deleteStoredCard(String ctoken) async {
-    await _delete('/paytr/stored-cards/$ctoken');
+    await _delete('/paytr/stored-cards/${Uri.encodeComponent(ctoken)}');
+  }
+
+  Future<List<Map<String, dynamic>>> autoPaymentInstructions() async {
+    final body = await _get('/auto-payment/status');
+    final instructions = body['instructions'];
+    return instructions is List
+        ? instructions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : const [];
+  }
+
+  Future<Map<String, dynamic>> enableAutoPayment(
+    String purpose,
+    String ctoken,
+  ) {
+    if (!const {'subscription', 'monthly_fee'}.contains(purpose)) {
+      throw ArgumentError.value(purpose, 'purpose');
+    }
+    return _post('/auto-payment/enable', {
+      'payment_purpose': purpose,
+      'ctoken': ctoken,
+    });
+  }
+
+  Future<Map<String, dynamic>> disableAutoPayment(String purpose) {
+    if (!const {'subscription', 'monthly_fee'}.contains(purpose)) {
+      throw ArgumentError.value(purpose, 'purpose');
+    }
+    return _post('/auto-payment/disable', {'payment_purpose': purpose});
   }
 
   Future<Map<String, dynamic>> _get(
@@ -1193,13 +2386,14 @@ class FinkitApi {
 
   Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    Map<String, String>? headers,
+  }) async {
     if (demoMode) return DemoData.post(path, body);
     final response = await _authorized(
       () => http.post(
         Uri.parse('$baseUrl$path'),
-        headers: _headers(json: true),
+        headers: {..._headers(json: true), ...?headers},
         body: jsonEncode(body),
       ),
     );
@@ -1259,22 +2453,23 @@ class FinkitApi {
     String? fileName,
   }) async {
     if (demoMode) return DemoData.post(path, fields);
-    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
-    final authToken = token;
-    if (authToken != null) {
-      request.headers['Authorization'] = 'Bearer $authToken';
-    }
-    request.headers['Accept'] = 'application/json';
-    request.fields.addAll(fields);
-    request.files.add(
-      await http.MultipartFile.fromPath(
-        fileField,
-        filePath,
-        filename: fileName,
-      ),
-    );
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final response = await _authorized(() async {
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'));
+      final authToken = token;
+      if (authToken != null) {
+        request.headers['Authorization'] = 'Bearer $authToken';
+      }
+      request.headers['Accept'] = 'application/json';
+      request.fields.addAll(fields);
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          fileField,
+          filePath,
+          filename: fileName,
+        ),
+      );
+      return http.Response.fromStream(await request.send());
+    });
     final decoded = _decode(response);
     if (response.statusCode >= 400) {
       throw ApiException(

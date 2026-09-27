@@ -6,7 +6,10 @@ import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'entry_forms.dart';
+import 'exchange_rates_section.dart';
 import 'invoice_detail_page.dart';
+import 'partner_edit_dialog.dart';
+import 'partner_invoice_history_page.dart';
 
 class SalesPage extends StatefulWidget {
   const SalesPage({
@@ -14,21 +17,29 @@ class SalesPage extends StatefulWidget {
     required this.api,
     required this.refreshKey,
     required this.onQuickAction,
+    this.initialInvoiceType,
   });
 
   final FinkitApi api;
   final int refreshKey;
   final VoidCallback onQuickAction;
+  final String? initialInvoiceType;
 
   @override
   State<SalesPage> createState() => _SalesPageState();
 }
 
 class _SalesPageState extends State<SalesPage> {
-  String _filter = 'Tümü';
-  String _search = '';
-  Future<List<Map<String, dynamic>>>? _future;
-  Future<List<Map<String, dynamic>>>? _partnersFuture;
+  final _search = TextEditingController();
+  final _start = TextEditingController();
+  final _end = TextEditingController();
+  String _status = '';
+  String _paymentStatus = '';
+  late String _invoiceType = widget.initialInvoiceType ?? '';
+  int? _partnerId;
+  int _page = 1;
+  late Future<Map<String, dynamic>> _future;
+  late Future<List<Map<String, dynamic>>> _partnersFuture;
 
   @override
   void initState() {
@@ -39,16 +50,68 @@ class _SalesPageState extends State<SalesPage> {
   @override
   void didUpdateWidget(covariant SalesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.refreshKey != widget.refreshKey) _load();
+    if (oldWidget.initialInvoiceType != widget.initialInvoiceType) {
+      _invoiceType = widget.initialInvoiceType ?? '';
+      _page = 1;
+      _load();
+    } else if (oldWidget.refreshKey != widget.refreshKey) {
+      _load();
+    }
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _start.dispose();
+    _end.dispose();
+    super.dispose();
   }
 
   void _load() {
-    _future = widget.api.salesInvoices();
-    _partnersFuture = widget.api.partners();
+    _future = widget.api.salesInvoicePage(
+      page: _page,
+      search: _search.text.trim(),
+      status: _status,
+      paymentStatus: _paymentStatus,
+      invoiceType: _invoiceType,
+      partnerId: _partnerId,
+      startDate: _start.text.trim(),
+      endDate: _end.text.trim(),
+    );
+    _partnersFuture = widget.api.partners(type: 'CUSTOMER');
+  }
+
+  void _applyFilters() {
+    final start = _start.text.trim();
+    final end = _end.text.trim();
+    bool validDate(String value) {
+      if (value.isEmpty) return true;
+      if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) return false;
+      final parsed = DateTime.tryParse(value);
+      return parsed != null &&
+          parsed.toIso8601String().substring(0, 10) == value;
+    }
+
+    if (!validDate(start) ||
+        !validDate(end) ||
+        (start.isNotEmpty && end.isNotEmpty && start.compareTo(end) > 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Geçerli bir tarih aralığı girin.')),
+      );
+      return;
+    }
+    setState(() {
+      _page = 1;
+      _load();
+    });
   }
 
   Future<void> _openCreateForm() async {
-    final created = await showSalesInvoiceForm(context, widget.api);
+    final created = await showSalesInvoiceForm(
+      context,
+      widget.api,
+      type: widget.initialInvoiceType ?? 'SATIS',
+    );
     if (created && mounted) {
       setState(_load);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -59,147 +122,254 @@ class _SalesPageState extends State<SalesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, salesSnapshot) {
-        if (salesSnapshot.connectionState != ConnectionState.done) {
-          return const LoadingState();
-        }
-        if (salesSnapshot.hasError) {
-          return _PageError(
-            message: salesSnapshot.error.toString(),
-            onRetry: () => setState(_load),
-          );
-        }
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: _partnersFuture,
-          builder: (context, partnerSnapshot) {
-            final partners =
-                partnerSnapshot.data ?? const <Map<String, dynamic>>[];
-            final all = salesSnapshot.data ?? const <Map<String, dynamic>>[];
-            final items = all.where((invoice) {
-              if (!'${invoice['number']} ${_partnerName(partners, invoice['partner_id'])} ${documentTypeLabel(invoice)} ${invoiceKindLabel(invoice) ?? ''}'
-                  .toLowerCase()
-                  .replaceAll('ı', 'i')
-                  .contains(_search)) {
-                return false;
+    return RefreshIndicator(
+      onRefresh: () async => setState(_load),
+      color: FinkitColors.ink,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: [
+          PageTitle(
+            title: widget.initialInvoiceType == 'IADE'
+                ? 'İade Faturaları'
+                : 'Satış Faturaları',
+            subtitle: widget.initialInvoiceType == 'IADE'
+                ? 'İade kayıtlarının durumunu ve cari etkilerini izleyin.'
+                : 'Satış ve iade kayıtlarının durumunu ve tahsilatlarını yönetin.',
+            trailing: IconButton.filled(
+              onPressed: _openCreateForm,
+              style: IconButton.styleFrom(
+                backgroundColor: FinkitColors.ink,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.add_rounded),
+            ),
+          ),
+          TextField(
+            controller: _search,
+            decoration: const InputDecoration(
+              labelText: 'Fatura numarası / not ara',
+              prefixIcon: Icon(Icons.search_rounded),
+            ),
+            onSubmitted: (_) => _applyFilters(),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: _status,
+            decoration: const InputDecoration(labelText: 'Belge durumu'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Tümü')),
+              DropdownMenuItem(value: 'DRAFT', child: Text('Taslak')),
+              DropdownMenuItem(value: 'FINALIZED', child: Text('Kesinleşti')),
+              DropdownMenuItem(value: 'SENT', child: Text('Gönderildi')),
+              DropdownMenuItem(
+                value: 'DELIVERED',
+                child: Text('Teslim edildi'),
+              ),
+              DropdownMenuItem(value: 'CANCELLED', child: Text('İptal')),
+              DropdownMenuItem(value: 'ERROR', child: Text('Hata')),
+            ],
+            onChanged: (value) => setState(() {
+              _status = value ?? '';
+              _page = 1;
+              _load();
+            }),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: _paymentStatus,
+            decoration: const InputDecoration(labelText: 'Ödeme durumu'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('Tümü')),
+              DropdownMenuItem(value: 'UNPAID', child: Text('Ödenmedi')),
+              DropdownMenuItem(value: 'PARTIAL', child: Text('Kısmi ödeme')),
+              DropdownMenuItem(value: 'PAID', child: Text('Ödendi')),
+              DropdownMenuItem(value: 'OVERDUE', child: Text('Gecikti')),
+            ],
+            onChanged: (value) => setState(() {
+              _paymentStatus = value ?? '';
+              _page = 1;
+              _load();
+            }),
+          ),
+          const SizedBox(height: 8),
+          if (widget.initialInvoiceType == null) ...[
+            DropdownButtonFormField<String>(
+              initialValue: _invoiceType,
+              decoration: const InputDecoration(labelText: 'Fatura türü'),
+              items: const [
+                DropdownMenuItem(value: '', child: Text('Tümü')),
+                DropdownMenuItem(value: 'SATIS', child: Text('Satış')),
+                DropdownMenuItem(value: 'IADE', child: Text('İade')),
+              ],
+              onChanged: (value) => setState(() {
+                _invoiceType = value ?? '';
+                _page = 1;
+                _load();
+              }),
+            ),
+            const SizedBox(height: 8),
+          ],
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _partnersFuture,
+            builder: (context, snapshot) {
+              final partners = snapshot.data ?? const <Map<String, dynamic>>[];
+              _knownPartners = partners;
+              if (snapshot.hasError) {
+                return Text('Müşteriler yüklenemedi: ${snapshot.error}');
               }
-              final payment = invoice['payment_status']?.toString() ?? '';
-              return switch (_filter) {
-                'Ödenen' => payment == 'PAID',
-                'Bekleyen' => payment == 'UNPAID' || payment == 'PARTIAL',
-                'Geciken' => payment == 'OVERDUE',
-                _ => true,
-              };
-            }).toList();
-            final total = all.fold<double>(
-              0,
-              (sum, item) =>
-                  sum + (double.tryParse('${item['gross_amount']}') ?? 0),
-            );
-            final unpaid = all
-                .where((item) => item['payment_status'] != 'PAID')
-                .fold<double>(
-                  0,
-                  (sum, item) =>
-                      sum + (double.tryParse('${item['gross_amount']}') ?? 0),
+              return DropdownButtonFormField<int?>(
+                initialValue: _partnerId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Müşteri'),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Tümü'),
+                  ),
+                  ...partners.map(
+                    (partner) => DropdownMenuItem<int?>(
+                      value: (partner['id'] as num).toInt(),
+                      child: Text(
+                        '${partner['name']}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => setState(() {
+                  _partnerId = value;
+                  _page = 1;
+                  _load();
+                }),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _start,
+                  decoration: const InputDecoration(
+                    labelText: 'Başlangıç YYYY-AA-GG',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: _end,
+                  decoration: const InputDecoration(
+                    labelText: 'Bitiş YYYY-AA-GG',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _applyFilters,
+              icon: const Icon(Icons.filter_alt_outlined),
+              label: const Text('Filtrele'),
+            ),
+          ),
+          FutureBuilder<Map<String, dynamic>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData && !snapshot.hasError) {
+                return const LoadingState();
+              }
+              if (snapshot.hasError) {
+                return _PageError(
+                  message: '${snapshot.error}',
+                  onRetry: () => setState(_load),
                 );
-            return RefreshIndicator(
-              onRefresh: () async => setState(_load),
-              color: FinkitColors.ink,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              }
+              final items = (snapshot.data?['items'] as List? ?? const [])
+                  .whereType<Map>()
+                  .map((item) => Map<String, dynamic>.from(item))
+                  .toList();
+              final total =
+                  int.tryParse('${snapshot.data?['total']}') ?? items.length;
+              return Column(
                 children: [
-                  PageTitle(
-                    title: 'Satış Faturaları',
-                    subtitle: 'E-Fatura, E-Arşiv, E-SMM, E-Müstahsil ve manuel satış kayıtlarının durumunu ve tahsilatlarını yönetin.',
-                    trailing: IconButton.filled(
-                      onPressed: _openCreateForm,
-                      style: IconButton.styleFrom(
-                        backgroundColor: FinkitColors.ink,
-                        foregroundColor: Colors.white,
+                  for (final invoice in items)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: DataRowCard(
+                        icon: Icons.post_add_rounded,
+                        title: invoice['number']?.toString() ?? 'Taslak Fatura',
+                        subtitle:
+                            '${_partnerName(invoice['partner_id'])} · ${dateText(invoice['issue_date'])} · ${statusLabel(invoice['status']?.toString())}',
+                        value: moneyText(invoice['gross_amount']),
+                        valueSubtitle: 'Vade ${dateText(invoice['due_date'])}',
+                        status: invoice['payment_status']?.toString(),
+                        document: invoice,
+                        onTap: () async {
+                          await openInvoiceDetail(context, widget.api, invoice);
+                          if (mounted) setState(_load);
+                        },
                       ),
-                      icon: const Icon(Icons.add_rounded),
                     ),
-                  ),
-                  SummaryGrid(
-                    items: [
-                      SummaryItem(
-                        'Toplam Satış',
-                        moneyText(total),
-                        Icons.trending_up_rounded,
-                      ),
-                      SummaryItem(
-                        'Bekleyen',
-                        moneyText(unpaid),
-                        Icons.schedule_rounded,
-                      ),
-                    ],
-                  ),
-                  TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Fatura veya müşteri ara',
-                      prefixIcon: Icon(Icons.search_rounded),
-                    ),
-                    onChanged: (value) => setState(
-                      () => _search = value.toLowerCase().replaceAll('ı', 'i'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilterRow(
-                    items: const ['Tümü', 'Ödenen', 'Bekleyen', 'Geciken'],
-                    selected: _filter,
-                    onSelected: (value) => setState(() => _filter = value),
-                  ),
                   if (items.isEmpty)
                     const EmptyState(
                       icon: Icons.post_add_rounded,
                       title: 'Fatura bulunamadı',
                       description:
                           'Bu filtreye uygun satış faturası bulunmuyor.',
-                    )
-                  else
-                    ...items.map(
-                      (invoice) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: DataRowCard(
-                          icon: Icons.post_add_rounded,
-                          title:
-                              invoice['number']?.toString() ?? 'Taslak Fatura',
-                          subtitle:
-                              '${_partnerName(partners, invoice['partner_id'])} · ${dateText(invoice['issue_date'])}',
-                          value: moneyText(invoice['gross_amount']),
-                          valueSubtitle:
-                              'Vade ${dateText(invoice['due_date'])}',
-                          status: invoice['payment_status']?.toString(),
-                          document: invoice,
-                          onTap: () async {
-                            await openInvoiceDetail(
-                              context,
-                              widget.api,
-                              invoice,
-                            );
-                            if (mounted) setState(_load);
-                          },
-                        ),
-                      ),
                     ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text('$total kayıt · $_page. sayfa')),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: 'Önceki sayfa',
+                            onPressed: _page <= 1
+                                ? null
+                                : () => setState(() {
+                                    _page--;
+                                    _load();
+                                  }),
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                          IconButton(
+                            tooltip: 'Sonraki sayfa',
+                            onPressed: _page * 25 >= total
+                                ? null
+                                : () => setState(() {
+                                    _page++;
+                                    _load();
+                                  }),
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
-              ),
-            );
-          },
-        );
-      },
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 
-  String _partnerName(List<Map<String, dynamic>> partners, dynamic id) {
+  String _partnerName(dynamic id) {
+    // Müşteri listesi ikinci istekten geldiği için kayıtlar id ile de gösterilir.
+    final partners = _knownPartners;
     final matches = partners
         .where((partner) => partner['id'] == id)
         .map((partner) => partner['name']?.toString() ?? '')
         .toList();
     return matches.isNotEmpty ? matches.first : 'Müşteri #$id';
   }
+
+  List<Map<String, dynamic>> _knownPartners = [];
 }
 
 class ExpensesPage extends StatefulWidget {
@@ -540,6 +710,7 @@ class _CashPageState extends State<CashPage> {
                     ),
                   );
                 }),
+              ExchangeRatesSection(api: widget.api),
             ],
           ),
         );
@@ -582,7 +753,9 @@ class _CustomersPageState extends State<CustomersPage> {
     if (oldWidget.refreshKey != widget.refreshKey) _load();
   }
 
-  void _load() => _future = widget.api.partners(type: widget.partnerType);
+  void _load() {
+    _future = widget.api.partners(type: widget.partnerType);
+  }
 
   Future<void> _openCreateForm() async {
     final created = await showPartnerForm(
@@ -594,6 +767,59 @@ class _CustomersPageState extends State<CustomersPage> {
       setState(_load);
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Cari kartı kaydedildi')));
+    }
+  }
+
+  Future<void> _editPartner(Map<String, dynamic> partner) async {
+    final id = int.tryParse('${partner['id']}');
+    if (id == null) return;
+    final changes = await showPartnerEditDialog(context, partner);
+    if (changes == null || !mounted) return;
+    try {
+      await widget.api.updatePartner(id, changes);
+      if (mounted) {
+        setState(_load);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cari kartı güncellendi.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
+  Future<void> _archivePartner(Map<String, dynamic> partner) async {
+    final id = int.tryParse('${partner['id']}');
+    if (id == null) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cari Kartını Arşivle'),
+        content: Text('${partner['name']} arşivlensin mi?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Arşivle'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    try {
+      await widget.api.archivePartner(id);
+      if (mounted) setState(_load);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 
@@ -667,8 +893,33 @@ class _CustomersPageState extends State<CustomersPage> {
                       context: context,
                       showDragHandle: true,
                       backgroundColor: FinkitColors.canvas,
-                      builder: (_) =>
-                          PartnerDetailSheet(api: widget.api, partner: partner),
+                      builder: (_) => PartnerDetailSheet(
+                        api: widget.api,
+                        partner: partner,
+                        onCollect: (id) async {
+                          final created = await showCollectionEntryForm(
+                            context,
+                            widget.api,
+                            initialPartnerId: id,
+                          );
+                          if (created && mounted) setState(_load);
+                        },
+                        onEdit: _editPartner,
+                        onArchive: _archivePartner,
+                        onInvoices: (item) async {
+                          final id = int.tryParse('${item['id']}');
+                          if (id == null || !mounted) return;
+                          await Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) => PartnerInvoiceHistoryPage(
+                                api: widget.api,
+                                partnerId: id,
+                                partnerName: '${item['name'] ?? 'Cari'}',
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -1053,10 +1304,18 @@ class PartnerDetailSheet extends StatefulWidget {
     super.key,
     required this.api,
     required this.partner,
+    this.onCollect,
+    this.onEdit,
+    this.onArchive,
+    this.onInvoices,
   });
 
   final FinkitApi api;
   final Map<String, dynamic> partner;
+  final Future<void> Function(int partnerId)? onCollect;
+  final Future<void> Function(Map<String, dynamic> partner)? onEdit;
+  final Future<void> Function(Map<String, dynamic> partner)? onArchive;
+  final Future<void> Function(Map<String, dynamic> partner)? onInvoices;
 
   @override
   State<PartnerDetailSheet> createState() => _PartnerDetailSheetState();
@@ -1174,14 +1433,48 @@ class _PartnerDetailSheetState extends State<PartnerDetailSheet> {
                   const LinearProgressIndicator(minHeight: 2),
                 ],
                 const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.call_received_rounded),
-                    label: const Text('Tahsilat Al'),
+                if (partner['partner_type'] != 'SUPPLIER' &&
+                    widget.onCollect != null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        final id = int.tryParse('${partner['id']}');
+                        if (id == null) return;
+                        Navigator.pop(context);
+                        widget.onCollect!(id);
+                      },
+                      icon: const Icon(Icons.call_received_rounded),
+                      label: const Text('Tahsilat Al'),
+                    ),
                   ),
-                ),
+                if (widget.onEdit != null)
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onEdit!(partner);
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Cari Kartını Düzenle'),
+                  ),
+                if (widget.onInvoices != null)
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onInvoices!(partner);
+                    },
+                    icon: const Icon(Icons.receipt_long_outlined),
+                    label: const Text('Fatura Geçmişi'),
+                  ),
+                if (widget.onArchive != null)
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onArchive!(partner);
+                    },
+                    icon: const Icon(Icons.archive_outlined),
+                    label: const Text('Cari Kartını Arşivle'),
+                  ),
               ],
             ),
           );

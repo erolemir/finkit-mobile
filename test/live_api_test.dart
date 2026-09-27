@@ -1,7 +1,7 @@
 // Mobil istemcinin gerçek backend ile konuştuğunu doğrulayan canlı test.
 //
 // Çalıştırmak için:
-//   $env:FINKIT_LIVE=1; flutter test test/live_api_test.dart
+//   $env:FINKIT_LIVE=1; $env:FINKIT_LIVE_EMAIL='...'; $env:FINKIT_LIVE_PASSWORD='...'; flutter test test/live_api_test.dart
 //
 // Ortam değişkeni verilmezse test atlanır (CI ve offline ortamlar için).
 import 'dart:io';
@@ -16,15 +16,20 @@ const _baseUrl = String.fromEnvironment(
 );
 
 void main() {
-  final live = Platform.environment['FINKIT_LIVE'] == '1';
+  final email = Platform.environment['FINKIT_LIVE_EMAIL'];
+  final password = Platform.environment['FINKIT_LIVE_PASSWORD'];
+  final live = Platform.environment['FINKIT_LIVE'] == '1' &&
+      email != null &&
+      password != null &&
+      Uri.parse(_baseUrl).host == 'test.finkit.com.tr';
 
   test('canli akis: giris, cari ve satis faturasi', () async {
     SharedPreferences.setMockInitialValues({});
     final api = FinkitApi();
 
     await api.login(
-      email: 'musavir@gmail.com',
-      password: '12345678',
+      email: email!,
+      password: password!,
       role: 'ADVISOR',
       apiBaseUrl: _baseUrl,
     );
@@ -95,5 +100,5 @@ void main() {
 
     final cashFlow = await api.report('cash-flow');
     expect(cashFlow['summary'], isA<Map>());
-  }, skip: live ? false : 'FINKIT_LIVE=1 verilmedigi icin atlandi');
+  }, skip: live ? false : 'Test API ve canlı test kimlik bilgileri verilmedi');
 }

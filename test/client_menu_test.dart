@@ -36,50 +36,41 @@ void main() {
 
     for (final page in const [
       'Müşteriler',
-      'Ürün ve Hizmetler',
-      'Depolar ve Stok',
+      'Hizmetler',
+      'Stok Ana Sayfa',
       'Teklifler',
       'Satış Faturaları',
-      'İade Faturaları',
-      'Tahsilatlar',
-      'Satış Raporu',
-      'Tahsilat Raporu',
-      'Gelir-Gider Raporu',
-      'Gider Listesi',
+      'Gelir ve Giderler',
       'Gelen Faturalar',
       'Tedarikçiler',
-      'Çalışanlar',
-      'Bordro ve Puantaj',
-      'Gider Raporu',
-      'Ödemeler Raporu',
-      'KDV Raporu',
-      'Tedarikçi Ödemeleri',
       'Kasa ve Bankalar',
       'Çekler ve Senetler',
-      'Kasa Raporu',
-      'Nakit Akış Raporu',
-      'Tüm Raporlar',
       'Belgelerim',
-      'E-Fatura ve E-Arşiv',
+      'Gelen Kutusu',
+      'Giden Kutusu',
+      'E-Arşiv Faturalar',
       'Duyurular',
       'Sohbet',
-      'Müşavir Taleplerim',
       'Danışma',
       'Destek',
-      'Takvim ve Hatırlatıcılar',
-      'Ödemeler',
-      'Ek Ücretler',
-      'Taksitler',
+      'Takvim & GİB',
+      'Ödemelerim',
       'Kartlarım',
       'Hesaplama Yap',
       'Not Defteri',
       'Profilim',
       'Bildirimler',
-      'Ayarlar',
     ]) {
       await tester.enterText(find.byType(TextField).first, page);
       await tester.pumpAndSettle();
-      final menuItem = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == page));
+      final menuItem = find
+          .descendant(
+            of: find.byType(FeatureMenuPage),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is Text && widget.data == page,
+            ),
+          )
+          .last;
       await tester.dragUntilVisible(
         menuItem,
         find.byType(ListView).first,

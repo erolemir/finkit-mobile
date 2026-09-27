@@ -11,6 +11,7 @@ class MenuEntry {
     required this.icon,
     required this.builder,
     this.badge,
+    this.viewId,
   });
 
   final String title;
@@ -18,14 +19,29 @@ class MenuEntry {
   final IconData icon;
   final WidgetBuilder builder;
   final int? badge;
+  final String? viewId;
+
+  MenuEntry renamed(String title, String viewId) => MenuEntry(
+    title: title,
+    subtitle: subtitle,
+    icon: icon,
+    builder: builder,
+    badge: badge,
+    viewId: viewId,
+  );
 }
 
 /// Menü bölümü (Finans, İletişim, Araçlar gibi).
 class MenuSection {
-  const MenuSection({required this.title, required this.entries});
+  const MenuSection({
+    required this.title,
+    required this.entries,
+    this.parentTitle,
+  });
 
   final String title;
   final List<MenuEntry> entries;
+  final String? parentTitle;
 }
 
 /// Tüm özelliklere erişim sağlayan menü ekranı.
@@ -74,6 +90,7 @@ class _FeatureMenuPageState extends State<FeatureMenuPage> {
         .map(
           (s) => MenuSection(
             title: s.title,
+            parentTitle: s.parentTitle,
             entries: s.entries
                 .where(
                   (e) =>
@@ -154,7 +171,18 @@ class _FeatureMenuPageState extends State<FeatureMenuPage> {
                   description:
                       'Başka bir kelime deneyin veya Tümü kategorisini seçin.',
                 ),
-              for (final section in sections)
+              for (var index = 0; index < sections.length; index++) ...[
+                if (sections[index].parentTitle != null &&
+                    (index == 0 ||
+                        sections[index - 1].parentTitle !=
+                            sections[index].parentTitle))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                    child: Text(
+                      sections[index].parentTitle!,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: SurfaceCard(
@@ -167,31 +195,33 @@ class _FeatureMenuPageState extends State<FeatureMenuPage> {
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: Icon(
-                            section.entries.first.icon,
+                            sections[index].entries.first.icon,
                             color: FinkitColors.primary,
                           ),
                           title: Text(
-                            section.title,
+                            sections[index].title,
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
-                          subtitle: Text('${section.entries.length} özellik'),
+                          subtitle: Text(
+                            '${sections[index].entries.length} özellik',
+                          ),
                           trailing: Icon(
                             query.isNotEmpty ||
                                     _category != null ||
-                                    _expanded.contains(section.title)
+                                    _expanded.contains(sections[index].title)
                                 ? Icons.expand_less_rounded
                                 : Icons.expand_more_rounded,
                           ),
                           onTap: () => setState(() {
-                            if (!_expanded.remove(section.title)) {
-                              _expanded.add(section.title);
+                            if (!_expanded.remove(sections[index].title)) {
+                              _expanded.add(sections[index].title);
                             }
                           }),
                         ),
                         if (query.isNotEmpty ||
                             _category != null ||
-                            _expanded.contains(section.title))
-                          for (final entry in section.entries) ...[
+                            _expanded.contains(sections[index].title))
+                          for (final entry in sections[index].entries) ...[
                             const Divider(height: 1, color: FinkitColors.line),
                             _MenuTile(entry: entry),
                           ],
@@ -199,6 +229,7 @@ class _FeatureMenuPageState extends State<FeatureMenuPage> {
                     ),
                   ),
                 ),
+              ],
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: widget.onLogout,

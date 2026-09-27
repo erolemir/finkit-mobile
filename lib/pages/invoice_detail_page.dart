@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,6 +8,8 @@ import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'partner_form_page.dart';
+import 'purchase_processing_page.dart';
+import 'electronic_invoice_page.dart';
 
 Future<void> openInvoiceDetail(
   BuildContext context,
@@ -76,8 +81,16 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
     }
   }
 
-  bool get _editable =>
-      const ['DRAFT', 'NEEDS_MATCH'].contains(_invoice?['status']);
+  bool get _editable {
+    if (widget.purchase) {
+      final lines = _invoice?['lines'];
+      return lines is List &&
+          lines.whereType<Map>().any(
+            (line) => line['accounting_action'] == null,
+          );
+    }
+    return const ['DRAFT', 'NEEDS_MATCH'].contains(_invoice?['status']);
+  }
 
   Future<void> _matchSupplier() async {
     final supplier = await Navigator.of(context).push<Map<String, dynamic>>(
@@ -116,12 +129,28 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
 
   Future<void> _approve() async {
     if (_busy) return;
+    if (widget.purchase) {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) =>
+              PurchaseProcessingPage(api: widget.api, invoice: _invoice!),
+        ),
+      );
+      if (mounted) await _load();
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Faturayı onayla'),
-        content: const Text(
-          'Fatura muhasebe kayıtlarınıza işlenecek. Devam etmek istiyor musunuz?',
+        title: Text(
+          const {'EINVOICE', 'EARCHIVE'}.contains(_invoice?['source_type'])
+              ? 'Faturayı kesinleştir ve gönder'
+              : 'Faturayı onayla',
+        ),
+        content: Text(
+          const {'EINVOICE', 'EARCHIVE'}.contains(_invoice?['source_type'])
+              ? 'Fatura muhasebe kayıtlarına işlenecek ve e-belge gönderim sırasına alınacak. Devam etmek istiyor musunuz?'
+              : 'Fatura muhasebe kayıtlarınıza işlenecek. Devam etmek istiyor musunuz?',
         ),
         actions: [
           TextButton(
@@ -142,9 +171,7 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
     });
     try {
       final id = int.parse('${_invoice!['id']}');
-      final updated = widget.purchase
-          ? await widget.api.postPurchaseInvoice(id)
-          : await widget.api.finalizeSalesInvoice(id);
+      final updated = await widget.api.finalizeSalesInvoice(id);
       if (mounted) {
         setState(() => _invoice = updated);
         ScaffoldMessenger.of(context)
@@ -152,6 +179,160 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
       }
     } catch (error) {
       if (mounted) setState(() => _actionError = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _cancelSales() async {
+    if (_busy || _invoice == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Faturayı iptal et'),
+        content: const Text(
+          'Kesinleşmiş faturanın cari ve stok hareketleri geri alınır. İptal etmek istiyor musunuz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('İptal et'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    try {
+      final updated = await widget.api.cancelSalesInvoice(
+        (_invoice!['id'] as num).toInt(),
+      );
+      if (mounted) setState(() => _invoice = updated);
+    } catch (error) {
+      if (mounted) setState(() => _actionError = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _copySales() async {
+    if (_busy || _invoice == null) return;
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    try {
+      final copy = await widget.api.copySalesInvoice(
+        (_invoice!['id'] as num).toInt(),
+      );
+      if (mounted) {
+        setState(() => _invoice = copy);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Yeni taslak fatura oluşturuldu.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _actionError = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _linkDespatch() async {
+    if (_busy || _invoice == null) return;
+    String value = '';
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('E-İrsaliye bağla'),
+        content: TextField(
+          decoration: const InputDecoration(
+            labelText: 'İrsaliye takip numarası',
+          ),
+          onChanged: (text) => value = text,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, value.trim()),
+            child: const Text('Bağla'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+    if (selected.isEmpty || selected.length > 36) {
+      setState(
+        () => _actionError = 'Geçerli bir irsaliye takip numarası girin.',
+      );
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    try {
+      final updated = await widget.api.linkSalesInvoiceDespatch(
+        (_invoice!['id'] as num).toInt(),
+        selected,
+      );
+      if (mounted) setState(() => _invoice = updated);
+    } catch (error) {
+      if (mounted) setState(() => _actionError = '$error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openContent(String format) async {
+    if (_busy || _invoice == null) return;
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
+    try {
+      final bytes = await widget.api.accountingInvoiceContent(
+        (_invoice!['id'] as num).toInt(),
+        format,
+        purchase: widget.purchase,
+      );
+      if (!mounted) return;
+      if (format == 'html') {
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => ElectronicDocumentPreview(
+              loader: () async => utf8.decode(bytes),
+            ),
+          ),
+        );
+      } else {
+        final name = '${_invoice!['number'] ?? _invoice!['id']}'.replaceAll(
+          RegExp(r'[^a-zA-Z0-9_-]'),
+          '_',
+        );
+        final path = await FilePicker.saveFile(
+          fileName: '$name.${format == 'ubl' ? 'xml' : 'pdf'}',
+          bytes: bytes,
+          mimeType: format == 'ubl' ? 'application/xml' : 'application/pdf',
+        );
+        if (mounted && path != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${format.toUpperCase()} kaydedildi.')),
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) setState(() => _actionError = '$error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -238,6 +419,49 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
                           ? 'Henüz seçilmedi'
                           : 'Cari bilgisi alınamadı'),
                 ),
+                if (widget.purchase
+                    ? invoice['provider_id']?.toString().isNotEmpty == true
+                    : invoice['e_document_uuid']?.toString().isNotEmpty ==
+                          true) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton(
+                        onPressed: _busy ? null : () => _openContent('html'),
+                        child: const Text('HTML görüntüle'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _busy ? null : () => _openContent('pdf'),
+                        child: const Text('PDF indir'),
+                      ),
+                      OutlinedButton(
+                        onPressed: _busy ? null : () => _openContent('ubl'),
+                        child: const Text('UBL indir'),
+                      ),
+                    ],
+                  ),
+                ],
+                if (!widget.purchase) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _copySales,
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Faturayı kopyala'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : _linkDespatch,
+                    icon: const Icon(Icons.local_shipping_outlined),
+                    label: const Text('E-İrsaliye bağla'),
+                  ),
+                  if (invoice['status'] != 'CANCELLED')
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _cancelSales,
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: const Text('Faturayı iptal et'),
+                    ),
+                ],
                 if (widget.purchase && _editable && !missingSupplier)
                   TextButton.icon(
                     onPressed: _busy ? null : _matchSupplier,
@@ -290,6 +514,8 @@ class _InvoiceDetailPageState extends State<InvoiceDetailPage> {
                                 ? 'İşleniyor…'
                                 : missingSupplier
                                 ? 'Tedarikçi Seç ve Devam Et'
+                                : widget.purchase
+                                ? 'Kalemleri İşle'
                                 : 'Faturayı Onayla',
                           ),
                         ),
@@ -419,6 +645,8 @@ class InvoiceContent extends StatelessWidget {
                 _InvoiceRow('Fatura işlemi', invoiceKindLabel(invoice)!),
               if (invoiceProfileLabel(invoice) != null)
                 _InvoiceRow('Senaryo', invoiceProfileLabel(invoice)!),
+              if (invoice['despatch_uuid']?.toString().isNotEmpty == true)
+                _InvoiceRow('E-İrsaliye', '${invoice['despatch_uuid']}'),
               _InvoiceRow('Para birimi', currency),
             ],
           ),

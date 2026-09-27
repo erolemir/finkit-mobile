@@ -3,21 +3,41 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../access_policy.dart';
 import '../api_client.dart';
 import '../services/app_notifications.dart';
 import '../services/background_sync.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'accounting_pages.dart';
+import 'admin_pages.dart';
+import 'admin_announcements_page.dart';
+import 'admin_system_updates_page.dart';
+import 'admin_settings_page.dart';
+import 'admin_support_page.dart';
+import 'admin_financial_page.dart';
+import 'admin_sms_page.dart';
+import 'admin_logs_page.dart';
+import 'admin_users_page.dart';
+import 'admin_danisma_page.dart';
 import 'chat_page.dart';
 import 'dashboard_page.dart';
 import 'data_pages.dart';
 import 'entry_forms.dart';
+import 'expense_groups_page.dart';
+import 'expense_definitions_page.dart';
+import 'einvoice_composer_page.dart';
+import 'einvoice_tools_page.dart';
+import 'einvoice_settings_page.dart';
+import 'extra_documents_page.dart';
+import 'full_notes_page.dart';
 import 'menu_page.dart';
 import 'more_pages.dart';
 import 'notification_center_page.dart';
 import 'platform_pages.dart';
 import 'system_updates_page.dart';
+import 'sub_users_page.dart';
+import 'vat_calculation_page.dart';
 
 class FinkitShell extends StatefulWidget {
   const FinkitShell({
@@ -43,6 +63,23 @@ class _FinkitShellState extends State<FinkitShell> {
 
   void _selectTab(int index) {
     if (index == _index) return;
+    final view = index == 0
+        ? (_isClient ? 'home' : 'dashboard')
+        : index == 1
+        ? (_isClient ? 'payments' : 'accounting-sales-invoices')
+        : index == 2
+        ? (_isClient ? 'documents' : 'accounting-cash-accounts')
+        : 'menu';
+    if (index != 3 && !_accessPolicy.canOpenView(view)) {
+      if (_accessPolicy.isPaymentLocked) {
+        setState(() => _index = 1);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bu sayfaya erişim yetkiniz yok.')),
+        );
+      }
+      return;
+    }
     setState(() {
       _tabHistory.add(_index);
       _index = index;
@@ -53,31 +90,41 @@ class _FinkitShellState extends State<FinkitShell> {
     _index = _tabHistory.isEmpty ? 0 : _tabHistory.removeLast();
   });
 
-  void _openSales() => Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => _wrapPage(
-        'Satış Faturaları',
-        SalesPage(
-          api: widget.api,
-          refreshKey: _refreshKey,
-          onQuickAction: _showQuickActions,
+  void _openSales() {
+    if (!_accessPolicy.canOpenView('accounting-sales-invoices')) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _wrapPage(
+          'Satış Faturaları',
+          SalesPage(
+            api: widget.api,
+            refreshKey: _refreshKey,
+            onQuickAction: _showQuickActions,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
-  void _openCash() => Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => _wrapPage(
-        'Kasa ve Banka',
-        CashPage(api: widget.api, refreshKey: _refreshKey),
+  void _openCash() {
+    if (!_accessPolicy.canOpenView('accounting-cash-accounts')) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _wrapPage(
+          'Kasa ve Banka',
+          CashPage(api: widget.api, refreshKey: _refreshKey),
+        ),
       ),
-    ),
-  );
+    );
+  }
+
   int _refreshKey = 0;
   String _userName = '';
   String _companyName = '';
   String _role = 'ADVISOR';
+  AppAccessPolicy _accessPolicy = const AppAccessPolicy(role: 'ADVISOR');
+  bool _identityReady = false;
+  String? _identityError;
   int? _userId;
   int _unreadNotifications = 0;
   StreamSubscription<Map<String, dynamic>>? _notificationEvents;
@@ -159,9 +206,9 @@ class _FinkitShellState extends State<FinkitShell> {
         _companyName = '';
         // Demo modunda rol, testlerin mükellef menüsünü de açabilmesi için
         // api üzerinden ayarlanabilir.
-        _role = widget.api.role?.toUpperCase() == 'CLIENT'
-            ? 'CLIENT'
-            : 'ADVISOR';
+        _role = widget.api.role?.toUpperCase() ?? 'ADVISOR';
+        _accessPolicy = AppAccessPolicy(role: _role);
+        _identityReady = true;
       });
       return;
     }
@@ -169,22 +216,36 @@ class _FinkitShellState extends State<FinkitShell> {
     String? company;
     String? role;
     int? userId;
+    Map<String, dynamic>? me;
     try {
-      final me = await widget.api.me();
+      me = await widget.api.me();
       name = me['full_name']?.toString();
       role = me['role']?.toString();
       userId = int.tryParse('${me['id']}');
-    } catch (_) {
-      // Kullanıcı bilgisi alınamazsa mevcut değer korunur.
+    } catch (error) {
+      if (mounted) setState(() => _identityError = '$error');
+      return;
     }
-    try {
-      final entity = await widget.api.entity();
-      // Ticari ad boş bırakılmışsa unvana düşülür.
-      final trade = entity['trade_name']?.toString().trim();
-      final legal = entity['legal_name']?.toString().trim();
-      company = (trade != null && trade.isNotEmpty) ? trade : legal;
-    } catch (_) {
-      // Şirket bilgisi alınamazsa mevcut değer korunur.
+    if (role?.toUpperCase() == 'CLIENT') {
+      try {
+        final profile = await widget.api.clientProfile();
+        _accessPolicy = AppAccessPolicy.fromUser(me, client: profile);
+      } catch (error) {
+        if (mounted) setState(() => _identityError = '$error');
+        return;
+      }
+    } else {
+      _accessPolicy = AppAccessPolicy.fromUser(me);
+    }
+    if (role?.toUpperCase() != 'ADMIN') {
+      try {
+        final entity = await widget.api.entity();
+        final trade = entity['trade_name']?.toString().trim();
+        final legal = entity['legal_name']?.toString().trim();
+        company = (trade != null && trade.isNotEmpty) ? trade : legal;
+      } catch (_) {
+        // Şirket bilgisi alınamazsa mevcut değer korunur.
+      }
     }
     if (!mounted) return;
     setState(() {
@@ -192,6 +253,8 @@ class _FinkitShellState extends State<FinkitShell> {
       if (company != null && company.isNotEmpty) _companyName = company;
       if (role != null && role.isNotEmpty) _role = role;
       _userId = userId;
+      _identityReady = true;
+      _identityError = null;
     });
     if (userId != null) {
       AppNotifications.instance.connect(widget.api, userId);
@@ -217,12 +280,54 @@ class _FinkitShellState extends State<FinkitShell> {
   }
 
   void _refresh() {
-    setState(() => _refreshKey++);
+    setState(() {
+      _refreshKey++;
+      _identityReady = false;
+      _identityError = null;
+    });
     _loadIdentity();
     _loadUnreadCount();
   }
 
   bool get _isClient => _role.toUpperCase() == 'CLIENT';
+  bool get _isAdmin => _role.toUpperCase() == 'ADMIN';
+
+  String? _viewForMenuTitle(String title) => switch (title) {
+    'Mükellefler' => 'clients',
+    'Belgeler' || 'Belgelerim' => 'documents',
+    'Tahsilatlar' ||
+    'Ödemeler' ||
+    'Ek Ücretler' ||
+    'Taksitler' ||
+    'Kartlarım' => 'payments',
+    'E-Fatura ve E-Arşiv' || 'E-Belgeler' => 'einvoice',
+    'Sohbet' => 'chat',
+    'Mail Gönder' => 'messages',
+    'Forum' => 'forum',
+    'Mükellef İstekleri' || 'Müşavir Taleplerim' => 'matching',
+    'Takvim ve Hatırlatıcılar' => 'calendar',
+    'Şablonlar' => 'templates',
+    'Hatırlatma Kuralları' => 'rules',
+    'Hızlı Giriş Aracı' => 'credentials',
+    'Destek' => 'support',
+    'Bildirimler' || 'Duyurular' => 'notifications',
+    'Profilim' => 'profile',
+    'Ayarlar' => 'settings',
+    'Not Defteri' => 'notes',
+    'Hesaplama Yap' => 'calculator',
+    'Sistem Güncellemeleri' => 'system-updates',
+    'Danışma' || 'Harici Mükellefler' => null,
+    _ => 'accounting-$title',
+  };
+
+  bool _canOpenMenuEntry(MenuEntry entry) {
+    final view = entry.viewId ?? _viewForMenuTitle(entry.title);
+    if (_accessPolicy.isPaymentLocked) return view == 'payments';
+    if (view == null) {
+      return !_accessPolicy.isSubUser && !_accessPolicy.isPaymentLocked;
+    }
+    return _accessPolicy.canOpenView(view);
+  }
 
   /// Kendi Scaffold'u olmayan gömülü sayfaları başlıkla sarar.
   Widget _wrapPage(String title, Widget body) => Scaffold(
@@ -264,6 +369,77 @@ class _FinkitShellState extends State<FinkitShell> {
 
   /// Rol bazlı menü: müşavir ve mükellef için ayrı özellik setleri.
   List<MenuSection> get _menuSections {
+    if (_isAdmin) {
+      MenuEntry adminEntry(AdminModule module) => MenuEntry(
+        title: module.title,
+        subtitle: 'Yönetim kayıtları ve işlemleri',
+        icon: Icons.admin_panel_settings_outlined,
+        builder: (_) => _wrapPage(module.title, switch (module.id) {
+          'announcements' => AdminAnnouncementsPage(api: widget.api),
+          'system-updates' => AdminSystemUpdatesPage(api: widget.api),
+          'settings' => AdminSettingsPage(api: widget.api),
+          'support' => AdminSupportPage(api: widget.api),
+          'financial' => AdminFinancialPage(api: widget.api),
+          'sms-reports' => AdminSmsPage(api: widget.api),
+          'logs' => AdminLogsPage(api: widget.api),
+          'users' => AdminUsersPage(api: widget.api),
+          'system-users' => AdminUsersPage(api: widget.api, systemOnly: true),
+          'danisma' => AdminDanismaPage(api: widget.api),
+          _ => AdminResourcePage(api: widget.api, module: module),
+        }),
+      );
+      return [
+        MenuSection(
+          title: 'Genel',
+          entries: [
+            MenuEntry(
+              title: 'Panel',
+              subtitle: 'Yönetim özeti',
+              icon: Icons.dashboard_outlined,
+              builder: (_) =>
+                  _wrapPage('Panel', AdminOverviewPage(api: widget.api)),
+            ),
+          ],
+        ),
+        MenuSection(
+          title: 'Yönetim',
+          entries: adminModules
+              .where(
+                (module) => const {
+                  'users',
+                  'advisors',
+                  'clients',
+                  'advisor-changes',
+                  'approvals',
+                  'advisor-approvals',
+                  'financial',
+                  'payments',
+                  'transfers',
+                  'sms-reports',
+                  'danisma',
+                }.contains(module.id),
+              )
+              .map(adminEntry)
+              .toList(),
+        ),
+        MenuSection(
+          title: 'Sistem',
+          entries: adminModules
+              .where(
+                (module) => const {
+                  'system-updates',
+                  'announcements',
+                  'support',
+                  'system-users',
+                  'settings',
+                  'logs',
+                }.contains(module.id),
+              )
+              .map(adminEntry)
+              .toList(),
+        ),
+      ];
+    }
     // Satışlar: cari kartlar, ürün/hizmet, depo-stok, teklif ve satış belgeleri.
     final sales = MenuSection(
       title: 'Satışlar',
@@ -391,7 +567,7 @@ class _FinkitShellState extends State<FinkitShell> {
           icon: Icons.receipt_long_outlined,
           builder: (_) => _wrapPage(
             'Gider Listesi',
-            ExpensesPage(api: widget.api, refreshKey: _refreshKey),
+            ExpenseGroupsPage(api: widget.api, refreshKey: _refreshKey),
           ),
         ),
         MenuEntry(
@@ -530,19 +706,6 @@ class _FinkitShellState extends State<FinkitShell> {
       ],
     );
 
-    final reports = MenuSection(
-      title: 'Rapor Kütüphanesi',
-      entries: [
-        MenuEntry(
-          title: 'Tüm Raporlar',
-          subtitle: 'Stok, vade, bordro ve diğer raporlar',
-          icon: Icons.insert_chart_outlined_rounded,
-          builder: (_) =>
-              DashboardReportsPage(api: widget.api, refreshKey: _refreshKey),
-        ),
-      ],
-    );
-
     // Müşavir araçları: mükellef listesi, kurum giriş bilgileri ve takip kayıtları.
     final advisorTools = MenuSection(
       title: 'Müşavir Araçları',
@@ -579,8 +742,11 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Hatırlatma Kuralları',
           subtitle: 'Vadesi yaklaşan ödemeler için otomatik hatırlatma',
           icon: Icons.notifications_active_outlined,
-          builder: (_) =>
-              ReminderRulesPage(api: widget.api, refreshKey: _refreshKey),
+          builder: (_) => ReminderRulesPage(
+            api: widget.api,
+            refreshKey: _refreshKey,
+            isSubUser: _accessPolicy.isSubUser,
+          ),
         ),
       ],
     );
@@ -612,10 +778,9 @@ class _FinkitShellState extends State<FinkitShell> {
         if (!_isClient)
           MenuEntry(
             title: 'E-Belgeler',
-            subtitle: 'Gönderilen ve gelen e-irsaliyeler',
+            subtitle: 'E-İrsaliye, E-SMM ve E-Müstahsil',
             icon: Icons.local_shipping_outlined,
-            builder: (_) =>
-                DespatchListPage(api: widget.api, refreshKey: _refreshKey),
+            builder: (_) => ExtraDocumentsPage(api: widget.api),
           ),
         MenuEntry(
           title: 'Duyurular',
@@ -704,8 +869,12 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Takvim ve Hatırlatıcılar',
           subtitle: 'Etkinlikler, beyanname tarihleri',
           icon: Icons.calendar_month_outlined,
-          builder: (_) =>
-              CalendarListPage(api: widget.api, refreshKey: _refreshKey),
+          builder: (_) => CalendarListPage(
+            api: widget.api,
+            refreshKey: _refreshKey,
+            isClient: _isClient,
+            userId: _userId,
+          ),
         ),
         MenuEntry(
           title: 'Ödemeler',
@@ -747,7 +916,7 @@ class _FinkitShellState extends State<FinkitShell> {
           title: 'Not Defteri',
           subtitle: 'Cihazınızda saklanan notlar',
           icon: Icons.sticky_note_2_outlined,
-          builder: (_) => const NotesPage(),
+          builder: (_) => FullNotesPage(userId: _userId ?? 0, role: _role),
         ),
         if (_isClient)
           MenuEntry(
@@ -791,27 +960,394 @@ class _FinkitShellState extends State<FinkitShell> {
       ],
     );
 
-    return [
-      for (final section in [sales, expenseSection, cash])
-        MenuSection(
-          title: section.title,
-          entries: section.entries
-              .where((e) => !e.title.contains('Rapor'))
-              .toList(),
-        ),
-      MenuSection(
-        title: 'Raporlar',
-        entries: [
-          ...reports.entries,
-          for (final section in [sales, expenseSection, cash])
-            ...section.entries.where((e) => e.title.contains('Rapor')),
-        ],
+    MenuEntry from(
+      MenuSection section,
+      String source,
+      String label,
+      String view,
+    ) => section.entries
+        .firstWhere((entry) => entry.title == source)
+        .renamed(label, view);
+    MenuSection group(
+      String title,
+      List<MenuEntry> entries, {
+      String? parent,
+    }) => MenuSection(title: title, entries: entries, parentTitle: parent);
+    MenuEntry report(String label, String slug, String view) => MenuEntry(
+      title: label,
+      subtitle: 'Dönem ve durum filtreleriyle rapor',
+      icon: Icons.insert_chart_outlined_rounded,
+      viewId: view,
+      builder: (_) =>
+          ReportDetailPage(api: widget.api, report: slug, title: label),
+    );
+    MenuEntry invoiceBox(
+      String label,
+      String view, {
+      bool incoming = false,
+      bool archive = false,
+    }) => MenuEntry(
+      title: label,
+      subtitle: archive
+          ? 'E-Arşiv belgeleri'
+          : incoming
+          ? 'Gelen E-Faturalar'
+          : 'Gönderilen E-Faturalar',
+      icon: archive
+          ? Icons.archive_outlined
+          : incoming
+          ? Icons.inbox_outlined
+          : Icons.outbox_outlined,
+      viewId: view,
+      builder: (_) => EInvoiceListPage(
+        api: widget.api,
+        refreshKey: _refreshKey,
+        isClient: _isClient,
+        initialIndex: incoming ? 1 : 0,
+        documentType: archive ? 'EARCHIVE' : 'EINVOICE',
       ),
-      if (!_isClient) advisorTools,
-      documents,
-      communication,
-      planning,
-      account,
+    );
+    MenuEntry invoiceComposer(String label, String view, String type) =>
+        MenuEntry(
+          title: label,
+          subtitle: 'Belge oluştur, taslağı kaydet ve onaylayarak gönder',
+          icon: Icons.post_add_outlined,
+          viewId: view,
+          builder: (_) => EInvoiceComposerPage(
+            api: widget.api,
+            isClient: _isClient,
+            documentType: type,
+          ),
+        );
+    MenuEntry invoiceDrafts(String label, String view, String type) =>
+        MenuEntry(
+          title: label,
+          subtitle: 'Kayıtlı taslakları düzenle veya gönder',
+          icon: Icons.drafts_outlined,
+          viewId: view,
+          builder: (_) => EInvoiceDraftsPage(
+            api: widget.api,
+            isClient: _isClient,
+            documentType: type,
+          ),
+        );
+    MenuEntry invoiceUpload(
+      String label,
+      String view,
+      String type, {
+      bool medula = false,
+    }) => MenuEntry(
+      title: label,
+      subtitle: 'UBL-TR XML belgesi yükle',
+      icon: Icons.upload_file_outlined,
+      viewId: view,
+      builder: (_) => EInvoiceUblUploadPage(
+        api: widget.api,
+        isClient: _isClient,
+        documentType: type,
+        medula: medula,
+      ),
+    );
+    final main = group('Genel', [
+      MenuEntry(
+        title: _isClient ? 'Ana Sayfa' : 'Panel',
+        subtitle: 'Genel durum ve son hareketler',
+        icon: Icons.dashboard_outlined,
+        viewId: _isClient ? 'home' : 'dashboard',
+        builder: (_) => _wrapPage(
+          _isClient ? 'Ana Sayfa' : 'Panel',
+          DashboardPage(
+            api: widget.api,
+            refreshKey: _refreshKey,
+            onOpenSales: _openSales,
+            onOpenExpenses: _openExpenses,
+            onOpenCash: _openCash,
+            onOpenReports: _openReports,
+          ),
+        ),
+      ),
+      if (!_isClient)
+        from(advisorTools, 'Mükellefler', 'Mükellefler', 'clients'),
+      if (_isClient) from(planning, 'Ödemeler', 'Ödemelerim', 'payments'),
+      from(
+        documents,
+        _isClient ? 'Belgelerim' : 'Belgeler',
+        _isClient ? 'Belgelerim' : 'Belgeler',
+        'documents',
+      ),
+      if (!_isClient) from(planning, 'Ödemeler', 'Tahsilatlar', 'payments'),
+    ]);
+    const business = 'İşletme Yönetimi';
+    final sections = <MenuSection>[
+      main,
+      group('KDV Hesaplama', [
+        MenuEntry(
+          title: 'KDV Hesaplama',
+          subtitle: 'Döneme göre ödenecek ve devreden KDV',
+          icon: Icons.percent_rounded,
+          viewId: 'accounting-vat-calculation',
+          builder: (_) => VatCalculationPage(api: widget.api),
+        ),
+      ], parent: business),
+      group('Müşteri Yönetimi', [
+        from(sales, 'Müşteriler', 'Müşteriler', 'accounting-sales-partners'),
+      ], parent: business),
+      group('Satış Modülü', [
+        from(
+          sales,
+          'Ürün ve Hizmetler',
+          'Hizmetler',
+          'accounting-sales-services',
+        ),
+        from(
+          sales,
+          'Satış Faturaları',
+          'Satış Faturaları',
+          'accounting-sales-invoices',
+        ),
+      ], parent: business),
+      group('Stok Modülü', [
+        from(sales, 'Depolar ve Stok', 'Stok Ana Sayfa', 'accounting-stock'),
+        from(sales, 'Depo Tanımları', 'Depolar', 'accounting-stock-warehouses'),
+      ], parent: business),
+      group('Tahsilat Modülü', [
+        from(
+          sales,
+          'Tahsilatlar',
+          'Tahsilatlar',
+          'accounting-sales-collections',
+        ),
+      ], parent: business),
+      group('Teklif Modülü', [
+        from(sales, 'Teklifler', 'Teklifler', 'accounting-sales-quotes'),
+      ], parent: business),
+      group('Gelir - Gider Modülü', [
+        from(
+          expenseSection,
+          'Gider Listesi',
+          'Gelir ve Giderler',
+          'accounting-expenses-expenses',
+        ),
+        from(
+          expenseSection,
+          'Tedarikçiler',
+          'Tedarikçiler',
+          'accounting-expenses-suppliers',
+        ),
+        from(
+          expenseSection,
+          'Tedarikçi Ödemeleri',
+          'Ödemeler',
+          'accounting-expenses-payments',
+        ),
+        MenuEntry(
+          title: 'Ön Tanımlar',
+          subtitle: 'Gider kategorilerini yönetin',
+          icon: Icons.category_outlined,
+          viewId: 'accounting-expenses-definitions',
+          builder: (_) => ExpenseDefinitionsPage(api: widget.api),
+        ),
+      ], parent: business),
+      group('Nakit ve Banka', [
+        from(
+          cash,
+          'Kasa ve Bankalar',
+          'Kasa ve Bankalar',
+          'accounting-cash-accounts',
+        ),
+        from(
+          cash,
+          'Kasa Hareketleri',
+          'Nakit Hareketleri',
+          'accounting-cash-transactions',
+        ),
+        from(
+          cash,
+          'Çekler ve Senetler',
+          'Çekler ve Senetler',
+          'accounting-cash-checks',
+        ),
+      ], parent: business),
+      group('Raporlar', [
+        report('Vade Yaşlandırma', 'aging', 'accounting-reports-aging'),
+        report('KDV Raporu', 'vat', 'accounting-reports-vat'),
+        report(
+          'Kasa ve Banka Özeti',
+          'cash-register',
+          'accounting-reports-cash-register',
+        ),
+        report('Nakit Akışı', 'cash-flow', 'accounting-reports-cash-flow'),
+      ], parent: business),
+      group('Fatura / E-Fatura', [
+        invoiceBox('Gelen Kutusu', 'einvoice-inbox', incoming: true),
+        invoiceBox('Giden Kutusu', 'einvoice-outbox'),
+        invoiceComposer('E-Fatura Oluştur', 'einvoice-create', 'EINVOICE'),
+        invoiceDrafts('Taslak Faturalar', 'einvoice-drafts', 'EINVOICE'),
+        invoiceUpload('Fatura Yükleme', 'einvoice-upload', 'EINVOICE'),
+        invoiceUpload(
+          'Medula Fatura Yükleme',
+          'einvoice-medula-upload',
+          'EINVOICE',
+          medula: true,
+        ),
+        MenuEntry(
+          title: 'Fatura Ayarları',
+          subtitle: 'İzibiz hesabı, seri ve gönderici bilgileri',
+          icon: Icons.tune_outlined,
+          viewId: 'einvoice-settings',
+          builder: (_) =>
+              EInvoiceSettingsPage(api: widget.api, isClient: _isClient),
+        ),
+      ], parent: business),
+      group('Fatura / E-Arşiv', [
+        invoiceBox('E-Arşiv Faturalar', 'earchive-invoices', archive: true),
+        invoiceComposer('E-Arşiv Oluştur', 'earchive-create', 'EARCHIVE'),
+        invoiceDrafts('Taslak Faturalar', 'earchive-drafts', 'EARCHIVE'),
+        invoiceUpload('E-Arşiv Yükle', 'earchive-upload', 'EARCHIVE'),
+        MenuEntry(
+          title: 'E-Arşiv Raporları',
+          subtitle: 'Aylık belge ve raporlama durumları',
+          icon: Icons.assessment_outlined,
+          viewId: 'earchive-reports',
+          builder: (_) =>
+              EArchiveReportsPage(api: widget.api, isClient: _isClient),
+        ),
+      ], parent: business),
+      if (!_isClient)
+        group('Diğer E-Belgeler', [
+          from(
+            documents,
+            'E-Belgeler',
+            'E-İrsaliye, E-SMM ve Diğerleri',
+            'edocuments',
+          ),
+        ], parent: business),
+      if (!_isClient)
+        group('İletişim', [
+          from(communication, 'Sohbet', 'Sohbet', 'chat'),
+          from(communication, 'Mail Gönder', 'Mail Gönder', 'messages'),
+          from(communication, 'Forum', 'Forum', 'forum'),
+          from(
+            communication,
+            'Mükellef İstekleri',
+            'Mükellef İstekleri',
+            'matching',
+          ),
+        ]),
+      group(_isClient ? 'Hesap' : 'Araçlar', [
+        if (_isClient) from(planning, 'Kartlarım', 'Kartlarım', 'stored-cards'),
+        from(
+          documents,
+          'Sistem Güncellemeleri',
+          'Sistem Güncellemeleri',
+          'system-updates',
+        ),
+        if (!_isClient)
+          from(
+            advisorTools,
+            'Hızlı Giriş Aracı',
+            'Giriş Bilgileri',
+            'credentials',
+          ),
+        from(
+          planning,
+          'Takvim ve Hatırlatıcılar',
+          _isClient ? 'Takvim & GİB' : 'Takvim',
+          'calendar',
+        ),
+        if (_isClient)
+          MenuEntry(
+            title: 'Hatırlatıcılar',
+            subtitle: 'Ödeme hatırlatma kurallarım',
+            icon: Icons.notifications_active_outlined,
+            viewId: 'reminders',
+            builder: (_) => ReminderRulesPage(
+              api: widget.api,
+              refreshKey: _refreshKey,
+              isClient: true,
+            ),
+          ),
+        if (!_isClient)
+          from(advisorTools, 'Şablonlar', 'Şablonlar', 'templates'),
+        if (!_isClient)
+          from(advisorTools, 'Hatırlatma Kuralları', 'Kurallar', 'rules'),
+        from(planning, 'Hesaplama Yap', 'Hesaplama Yap', 'calculator'),
+        from(planning, 'Not Defteri', 'Not Defteri', 'notes'),
+        if (_isClient) from(account, 'Profilim', 'Profilim', 'profile'),
+        if (!_isClient) from(account, 'Ayarlar', 'Ayarlar', 'settings'),
+        MenuEntry(
+          title: 'Alt Kullanıcılar',
+          subtitle: 'Ekip üyeleri ve işlem izinleri',
+          icon: Icons.groups_outlined,
+          viewId: 'sub-users',
+          builder: (_) => SubUsersPage(api: widget.api),
+        ),
+        from(communication, 'Destek', 'Destek', 'support'),
+      ]),
+      group('Diğer', [
+        if (!_isClient)
+          from(
+            advisorTools,
+            'Harici Mükellefler',
+            'Harici Mükellefler',
+            'clients',
+          ),
+        from(planning, 'Ek Ücretler', 'Ek Ücretler', 'payment-extra-charge'),
+        from(planning, 'Taksitler', 'Taksitler', 'payment-installment'),
+        MenuEntry(
+          title: 'Tüm Raporlar',
+          subtitle: 'Ek işletme raporları',
+          icon: Icons.insert_chart_outlined_rounded,
+          viewId: 'accounting-reports',
+          builder: (_) =>
+              DashboardReportsPage(api: widget.api, refreshKey: _refreshKey),
+        ),
+        from(
+          expenseSection,
+          'Çalışanlar',
+          'Çalışanlar',
+          'accounting-payroll-employees',
+        ),
+        from(
+          expenseSection,
+          'Bordro ve Puantaj',
+          'Bordro ve Puantaj',
+          'accounting-payroll-payroll',
+        ),
+        from(sales, 'Satış Raporu', 'Satış Raporu', 'accounting-reports-sales'),
+        from(
+          expenseSection,
+          'Gider Raporu',
+          'Gider Raporu',
+          'accounting-reports-expenses',
+        ),
+        from(account, 'Profilim', 'Profilim', 'profile'),
+        from(communication, 'Sohbet', 'Sohbet', 'chat'),
+        from(communication, 'Danışma', 'Danışma', 'matching'),
+        from(documents, 'Duyurular', 'Duyurular', 'notifications'),
+        from(account, 'Bildirimler', 'Bildirimler', 'notifications'),
+        from(
+          sales,
+          'İade Faturaları',
+          'İade Faturaları',
+          'accounting-sales-invoices',
+        ),
+        from(
+          expenseSection,
+          'Gelen Faturalar',
+          'Gelen Faturalar',
+          'accounting-expenses-expenses',
+        ),
+      ]),
+    ];
+    return [
+      for (final section in sections)
+        if (section.entries.any(_canOpenMenuEntry))
+          MenuSection(
+            title: section.title,
+            parentTitle: section.parentTitle,
+            entries: section.entries.where(_canOpenMenuEntry).toList(),
+          ),
     ];
   }
 
@@ -847,7 +1383,7 @@ class _FinkitShellState extends State<FinkitShell> {
         builder: (_) => Scaffold(
           backgroundColor: FinkitColors.canvas,
           appBar: AppBar(title: const Text('Giderler')),
-          body: ExpensesPage(api: widget.api, refreshKey: _refreshKey),
+          body: ExpenseGroupsPage(api: widget.api, refreshKey: _refreshKey),
         ),
       ),
     );
@@ -929,12 +1465,35 @@ class _FinkitShellState extends State<FinkitShell> {
   }
 
   Widget _page() {
+    if (_accessPolicy.isPaymentLocked) {
+      return PaymentsListPage(
+        api: widget.api,
+        refreshKey: _refreshKey,
+        isClient: true,
+      );
+    }
     if (_index == 3) {
       return FeatureMenuPage(
         sections: _menuSections,
         onLogout: () => widget.onLogout(),
-        roleLabel: _isClient ? 'Mükellef' : 'Müşavir',
+        roleLabel: _isAdmin
+            ? 'Yönetici'
+            : _isClient
+            ? 'Mükellef'
+            : 'Müşavir',
       );
+    }
+    if (_isAdmin) {
+      if (_index == 1) {
+        return AdminResourcePage(api: widget.api, module: adminModules.first);
+      }
+      if (_index == 2) {
+        return AdminResourcePage(
+          api: widget.api,
+          module: adminModules.firstWhere((module) => module.id == 'financial'),
+        );
+      }
+      return AdminOverviewPage(api: widget.api);
     }
     if (_isClient) {
       switch (_index) {
@@ -985,6 +1544,52 @@ class _FinkitShellState extends State<FinkitShell> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_identityReady) {
+      return Scaffold(
+        body: Center(
+          child: _identityError == null
+              ? const LoadingState()
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Oturum bilgileri alınamadı: $_identityError'),
+                    TextButton(
+                      onPressed: _loadIdentity,
+                      child: const Text('Tekrar Dene'),
+                    ),
+                    TextButton(
+                      onPressed: widget.onLogout,
+                      child: const Text('Çıkış Yap'),
+                    ),
+                  ],
+                ),
+        ),
+      );
+    }
+    if (_accessPolicy.isPaymentLocked) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Ödemelerim'),
+          actions: [
+            IconButton(
+              tooltip: 'Yenile',
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh),
+            ),
+            IconButton(
+              tooltip: 'Çıkış Yap',
+              onPressed: widget.onLogout,
+              icon: const Icon(Icons.logout),
+            ),
+          ],
+        ),
+        body: PaymentsListPage(
+          api: widget.api,
+          refreshKey: _refreshKey,
+          isClient: true,
+        ),
+      );
+    }
     return PopScope(
       canPop: _index == 0 && _tabHistory.isEmpty,
       onPopInvokedWithResult: (didPop, result) {
@@ -1018,6 +1623,8 @@ class _FinkitShellState extends State<FinkitShell> {
           onAdd: _showQuickActions,
           labels: _isClient
               ? const ['Özet', 'Ödemeler', 'Belgeler', 'Menü']
+              : _isAdmin
+              ? const ['Özet', 'Üyeler', 'Finans', 'Menü']
               : const ['Özet', 'Faturalar', 'Kasa', 'Menü'],
         ),
       ),

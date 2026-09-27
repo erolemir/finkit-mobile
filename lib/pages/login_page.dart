@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../api_client.dart';
 import '../theme.dart';
+import 'registration_page.dart';
+import 'company_setup_page.dart';
 
 class FinkitLoginPage extends StatefulWidget {
   const FinkitLoginPage({
@@ -28,6 +30,10 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
   bool _loading = false;
   String? _error;
 
+  String get _selectedBaseUrl => FinkitApi.fixedServerBuild
+      ? FinkitApi.defaultBaseUrl
+      : _baseUrl.text.trim().replaceAll(RegExp(r'/$'), '');
+
   @override
   void initState() {
     super.initState();
@@ -38,10 +44,10 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
           widget.api.email ??
           const String.fromEnvironment(
             'FINKIT_DEFAULT_EMAIL',
-            defaultValue: 'musavir@gmail.com',
+            defaultValue: '',
           ),
     );
-    _password = TextEditingController(text: '12345678');
+    _password = TextEditingController();
     _baseUrl = TextEditingController(text: widget.api.baseUrl);
   }
 
@@ -63,7 +69,7 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
         email: _email.text,
         password: _password.text,
         role: _role,
-        apiBaseUrl: _baseUrl.text,
+        apiBaseUrl: _selectedBaseUrl,
       );
       widget.onAuthenticated();
     } catch (error) {
@@ -76,6 +82,72 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
   Future<void> _demo() async {
     await widget.api.enableDemo();
     widget.onAuthenticated();
+  }
+
+  void _openRegistration() {
+    widget.api.baseUrl = _selectedBaseUrl;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RegistrationPage(api: widget.api),
+      ),
+    );
+  }
+
+  void _openCompanySetup() {
+    widget.api.baseUrl = _selectedBaseUrl;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (setupContext) => CompanySetupPage(
+          api: widget.api,
+          onAuthenticated: () {
+            Navigator.of(setupContext).pop();
+            widget.onAuthenticated();
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = TextEditingController(text: _email.text.trim());
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Şifremi Unuttum'),
+        content: TextField(
+          controller: email,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(labelText: 'E-posta'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Bağlantı Gönder'),
+          ),
+        ],
+      ),
+    );
+    final address = email.text.trim();
+    email.dispose();
+    if (submitted != true || address.isEmpty) return;
+    widget.api.baseUrl = _selectedBaseUrl;
+    try {
+      await widget.api.forgotPassword(address, _role);
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Şifre sıfırlama bağlantısı e-postanıza gönderildi.'),
+          ),
+        );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   @override
@@ -194,6 +266,10 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
                         ),
                         items: const [
                           DropdownMenuItem(
+                            value: 'ADMIN',
+                            child: Text('Yönetici'),
+                          ),
+                          DropdownMenuItem(
                             value: 'ADVISOR',
                             child: Text('Müşavir'),
                           ),
@@ -206,31 +282,32 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
                             setState(() => _role = value ?? 'ADVISOR'),
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: _baseUrl,
-                        keyboardType: TextInputType.url,
-                        decoration: InputDecoration(
-                          labelText: 'API Adresi',
-                          prefixIcon: const Icon(Icons.cloud_outlined),
-                          suffixIcon: PopupMenuButton<String>(
-                            tooltip: 'Sunucu seç',
-                            icon: const Icon(Icons.swap_horiz_rounded),
-                            onSelected: (value) => setState(() {
-                              _baseUrl.text = value;
-                            }),
-                            itemBuilder: (_) => const [
-                              PopupMenuItem(
-                                value: 'https://finkit.com.tr/api',
-                                child: Text('Canlı sunucu (finkit.com.tr)'),
-                              ),
-                              PopupMenuItem(
-                                value: 'https://test.finkit.com.tr/api',
-                                child: Text('Test sunucusu'),
-                              ),
-                            ],
+                      if (!FinkitApi.fixedServerBuild)
+                        TextField(
+                          controller: _baseUrl,
+                          keyboardType: TextInputType.url,
+                          decoration: InputDecoration(
+                            labelText: 'API Adresi',
+                            prefixIcon: const Icon(Icons.cloud_outlined),
+                            suffixIcon: PopupMenuButton<String>(
+                              tooltip: 'Sunucu seç',
+                              icon: const Icon(Icons.swap_horiz_rounded),
+                              onSelected: (value) => setState(() {
+                                _baseUrl.text = value;
+                              }),
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'https://finkit.com.tr/api',
+                                  child: Text('Canlı sunucu (finkit.com.tr)'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'https://test.finkit.com.tr/api',
+                                  child: Text('Test sunucusu'),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
                       if (_error != null) ...[
                         const SizedBox(height: 12),
                         Container(
@@ -268,6 +345,26 @@ class _FinkitLoginPageState extends State<FinkitLoginPage> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          TextButton(
+                            onPressed: _openRegistration,
+                            child: const Text('Hesap Aç'),
+                          ),
+                          TextButton(
+                            onPressed: _forgotPassword,
+                            child: const Text('Şifremi Unuttum'),
+                          ),
+                        ],
+                      ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed: _openCompanySetup,
+                          child: const Text('Şirket Aç'),
+                        ),
+                      ),
                       SizedBox(
                         width: double.infinity,
                         child: TextButton(

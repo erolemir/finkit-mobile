@@ -12,7 +12,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<void> openMenuEntry(WidgetTester tester, String label) async {
   await tester.enterText(find.byType(TextField).first, label);
   await tester.pumpAndSettle();
-  final finder = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == label));
+  final finder = find
+      .descendant(
+        of: find.byType(FeatureMenuPage),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Text && widget.data == label,
+        ),
+      )
+      .last;
   await tester.dragUntilVisible(
     finder,
     find.byType(ListView).first,
@@ -56,29 +63,24 @@ void main() {
 
     for (final page in const [
       'Müşteriler',
-      'Ürün ve Hizmetler',
-      'Depolar ve Stok',
+      'Hizmetler',
+      'Stok Ana Sayfa',
       'Teklifler',
       'İade Faturaları',
-      'Tahsilatlar',
-      'Gider Listesi',
+      'Gelir ve Giderler',
       'Gelen Faturalar',
       'Tedarikçiler',
-      'Çalışanlar',
-      'Bordro ve Puantaj',
       'Kasa ve Bankalar',
       'Çekler ve Senetler',
-      'Tüm Raporlar',
-      'Harici Mükellefler',
       'Belgeler',
-      'E-Fatura ve E-Arşiv',
-      'E-Belgeler',
+      'Giden Kutusu',
+      'E-Arşiv Faturalar',
       'Sohbet',
       'Mail Gönder',
       'Forum',
       'Hesaplama Yap',
       'Not Defteri',
-      'Takvim ve Hatırlatıcılar',
+      'Takvim',
       'Bildirimler',
       'Ayarlar',
     ]) {

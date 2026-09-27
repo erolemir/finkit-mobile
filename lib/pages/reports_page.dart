@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../api_client.dart';
@@ -327,11 +328,19 @@ String reportValue(String key, dynamic value) {
 
 String reportLabel(String key) => _labels[key] ?? key.replaceAll('_', ' ');
 const _labels = {
-  'sales_gross': 'Brüt satış', 'cost_of_sales': 'Satış maliyeti',
-  'fx_gain': 'Kur farkı geliri', 'fx_loss': 'Kur farkı gideri',
-  'operating_result': 'Faaliyet sonucu', 'net_result': 'Net sonuç',
-  'partner': 'Cari', 'product': 'Ürün', 'warehouse': 'Depo', 'category': 'Kategori',
-  'account': 'Hesap', 'invoice': 'Fatura', 'bucket': 'Vade grubu',
+  'sales_gross': 'Brüt satış',
+  'cost_of_sales': 'Satış maliyeti',
+  'fx_gain': 'Kur farkı geliri',
+  'fx_loss': 'Kur farkı gideri',
+  'operating_result': 'Faaliyet sonucu',
+  'net_result': 'Net sonuç',
+  'partner': 'Cari',
+  'product': 'Ürün',
+  'warehouse': 'Depo',
+  'category': 'Kategori',
+  'account': 'Hesap',
+  'invoice': 'Fatura',
+  'bucket': 'Vade grubu',
   'net': 'Net tutar',
   'vat': 'KDV',
   'gross': 'Genel toplam',
@@ -445,6 +454,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
   late DateTimeRange _range;
   String _preset = 'Bu ay';
   String _basis = 'accrual';
+  bool _exporting = false;
   @override
   void initState() {
     super.initState();
@@ -477,10 +487,49 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
           end: DateTime(now.year, now.month, 0),
         ),
         'Bu yıl' => DateTimeRange(start: DateTime(now.year), end: now),
+        'Bu çeyrek' => DateTimeRange(
+          start: DateTime(now.year, ((now.month - 1) ~/ 3) * 3 + 1),
+          end: now,
+        ),
         _ => DateTimeRange(start: DateTime(now.year, now.month), end: now),
       };
       _future = _load();
     });
+  }
+
+  Future<void> _export(String format) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final bytes = await widget.api.exportReport(
+        widget.report,
+        format: format,
+        startDate: DateFormat('yyyy-MM-dd').format(_range.start),
+        endDate: DateFormat('yyyy-MM-dd').format(_range.end),
+        basis: _basis,
+      );
+      if (!mounted) return;
+      final fileName =
+          '${widget.report}-${DateFormat('yyyy-MM-dd').format(_range.end)}.$format';
+      final path = await FilePicker.saveFile(
+        fileName: fileName,
+        bytes: bytes,
+        mimeType: format == 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      if (mounted && path != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$format raporu kaydedildi.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Rapor indirilemedi: $error')));
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   Future<void> _pick() async {
@@ -530,6 +579,16 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Raporu dışa aktar',
+            enabled: !_exporting && !widget.api.demoMode,
+            onSelected: _export,
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'xlsx', child: Text('Excel indir')),
+              PopupMenuItem(value: 'pdf', child: Text('PDF indir')),
+            ],
+            icon: const Icon(Icons.download_rounded),
+          ),
           IconButton(
             tooltip: 'Raporu yenile',
             onPressed: _refresh,
@@ -559,7 +618,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: ['Bu ay', 'Geçen ay', 'Bu yıl']
+                      children: ['Bu ay', 'Geçen ay', 'Bu çeyrek', 'Bu yıl']
                           .map(
                             (p) => Padding(
                               padding: const EdgeInsets.only(right: 8),

@@ -41,38 +41,26 @@ void main() {
 
     for (final page in [
       'Müşteriler',
-      'Ürün ve Hizmetler',
-      'Depolar ve Stok',
-      'Depo Tanımları',
+      'Hizmetler',
+      'Stok Ana Sayfa',
+      'Depolar',
       'Teklifler',
       'Satış Faturaları',
       'İade Faturaları',
-      'Tahsilatlar',
-      'Satış Raporu',
-      'Tahsilat Raporu',
-      'Gelir-Gider Raporu',
-      'Gider Listesi',
+      'Gelir ve Giderler',
       'Gelen Faturalar',
       'Tedarikçiler',
-      'Çalışanlar',
-      'Bordro ve Puantaj',
-      'Gider Raporu',
-      'Ödemeler Raporu',
       'KDV Raporu',
       'Kasa ve Bankalar',
-      'Kasa Hareketleri',
+      'Nakit Hareketleri',
       'Çekler ve Senetler',
-      'Kasa Raporu',
-      'Nakit Akış Raporu',
-      'Tüm Raporlar',
       'Mükellefler',
-      'Hızlı Giriş Aracı',
-      'Harici Mükellefler',
+      'Giriş Bilgileri',
       'Şablonlar',
-      'Hatırlatma Kuralları',
+      'Kurallar',
       'Belgeler',
-      'E-Fatura ve E-Arşiv',
-      'E-Belgeler',
+      'Gelen Kutusu',
+      'E-Arşiv Faturalar',
       'Duyurular',
       'Sohbet',
       'Mail Gönder',
@@ -80,13 +68,9 @@ void main() {
       'Mükellef İstekleri',
       'Danışma',
       'Destek',
-      'Takvim ve Hatırlatıcılar',
-      'Ödemeler',
-      'Ek Ücretler',
-      'Taksitler',
+      'Takvim',
       'Hesaplama Yap',
       'Not Defteri',
-      'Profilim',
       'Bildirimler',
       'Ayarlar',
     ]) {
@@ -97,7 +81,14 @@ void main() {
       );
       await tester.enterText(find.byType(TextField).first, page);
       await tester.pumpAndSettle();
-      final menuItem = find.descendant(of: find.byType(FeatureMenuPage), matching: find.byWidgetPredicate((widget) => widget is Text && widget.data == page));
+      final menuItem = find
+          .descendant(
+            of: find.byType(FeatureMenuPage),
+            matching: find.byWidgetPredicate(
+              (widget) => widget is Text && widget.data == page,
+            ),
+          )
+          .last;
       await tester.dragUntilVisible(
         menuItem,
         find.byType(ListView).first,

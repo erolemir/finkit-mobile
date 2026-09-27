@@ -21,7 +21,7 @@ class InvoiceApi extends FinkitApi {
   }
   bool failLoad = false;
   bool failPost = false;
-  int posts = 0;
+  int processed = 0;
   int matches = 0;
   Map<String, dynamic> current = {
     'id': 10,
@@ -38,6 +38,7 @@ class InvoiceApi extends FinkitApi {
     'paid_amount': 200,
     'lines': [
       {
+        'id': 1,
         'description': 'Yıllık bulut sunucu ve destek hizmeti',
         'quantity': 1,
         'unit': 'ADET',
@@ -65,10 +66,30 @@ class InvoiceApi extends FinkitApi {
   }
 
   @override
-  Future<Map<String, dynamic>> postPurchaseInvoice(int id) async {
-    posts++;
+  Future<List<Map<String, dynamic>>> products() async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> warehouses() async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> expenseCategories() async => [];
+
+  @override
+  Future<Map<String, dynamic>> expensifyPurchaseInvoice(
+    int id,
+    List<int> lineIds, {
+    int? categoryId,
+  }) async {
     if (failPost) throw ApiException('İşlem tamamlanamadı');
-    current = {...current, 'status': 'POSTED'};
+    processed++;
+    current = {
+      ...current,
+      'status': 'POSTED',
+      'lines': [
+        for (final line in current['lines'] as List)
+          {...line as Map, 'accounting_action': 'EXPENSE'},
+      ],
+    };
     return Map.from(current);
   }
 }
@@ -135,7 +156,7 @@ void main() {
   }
 
   testWidgets(
-    'supplier recovery returns to same invoice and only posts after explicit approval',
+    'supplier recovery returns to same invoice and processes only after explicit approval',
     (tester) async {
       final api = InvoiceApi();
       await phone(
@@ -143,7 +164,7 @@ void main() {
         InvoiceDetailPage(api: api, invoice: api.current, purchase: true),
       );
       expect(find.text('Tedarikçi eşleştirmesi gerekli'), findsOneWidget);
-      expect(api.posts, 0);
+      expect(api.processed, 0);
       await tester.tap(find.text('Tedarikçi Seç ve Devam Et'));
       await tester.pumpAndSettle();
       expect(find.text('Yeni Tedarikçi Ekle'), findsOneWidget);
@@ -154,24 +175,31 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('GEL2026000042'), findsOneWidget);
       expect(api.matches, 1);
-      expect(api.posts, 0);
-      await tester.tap(find.text('Faturayı Onayla'));
+      expect(api.processed, 0);
+      await tester.tap(find.text('Kalemleri İşle'));
       await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'processing page');
+      await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Kalemleri İşle'),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Kalemleri İşle'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'approval dialog');
       await tester.tap(find.text('Vazgeç'));
       await tester.pumpAndSettle();
-      expect(api.posts, 0);
-      await tester.tap(find.text('Faturayı Onayla'));
+      expect(api.processed, 0);
+      await tester.tap(find.widgetWithText(FilledButton, 'Kalemleri İşle'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Onayla'));
+      await tester.tap(find.text('Onayla ve İşle'));
       await tester.pumpAndSettle();
-      expect(api.posts, 1);
-      expect(find.text('Faturayı Onayla'), findsNothing);
+      expect(api.processed, 1);
+      expect(find.text('Kalemleri İşle'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets(
-    'invoice loading errors are recoverable and failed posting keeps details',
+    'invoice loading errors are recoverable and failed processing keeps details',
     (tester) async {
       final api = InvoiceApi()..failLoad = true;
       await phone(
@@ -184,12 +212,17 @@ void main() {
       await tester.tap(find.text('Tekrar Dene'));
       await tester.pumpAndSettle();
       api.failPost = true;
-      await tester.tap(find.text('Faturayı Onayla'));
+      await tester.tap(find.text('Kalemleri İşle'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Onayla'));
+      await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Kalemleri İşle'),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Kalemleri İşle'));
       await tester.pumpAndSettle();
-      expect(find.text('İşlem tamamlanamadı'), findsOneWidget);
-      expect(find.text('GEL2026000042'), findsOneWidget);
+      await tester.tap(find.text('Onayla ve İşle'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('İşlem tamamlanamadı'), findsOneWidget);
+      expect(find.text('Kalemleri İşle'), findsWidgets);
       expect(tester.takeException(), isNull);
     },
   );

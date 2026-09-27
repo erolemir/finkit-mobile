@@ -37,22 +37,66 @@ class TypeApi extends FinkitApi {
     String? status,
   }) async => [archive];
   @override
+  Future<Map<String, dynamic>> salesInvoicePage({
+    int page = 1,
+    String? search,
+    String? status,
+    String? paymentStatus,
+    String? invoiceType,
+    int? partnerId,
+    String? startDate,
+    String? endDate,
+  }) async => {
+    'items': [archive],
+    'total': 1,
+  };
+  @override
   Future<List<Map<String, dynamic>>> purchaseInvoices({
     String? type,
     String? status,
   }) async => [archive];
   @override
-  Future<List<Map<String, dynamic>>> einvoiceInvoices() async => [archive];
+  Future<Map<String, dynamic>> purchaseInvoicePage({
+    int page = 1,
+    String? search,
+    String? status,
+    String? paymentStatus,
+    int? supplierId,
+    String? startDate,
+    String? endDate,
+  }) async => {
+    'items': [archive],
+    'total': 1,
+  };
   @override
-  Future<List<Map<String, dynamic>>> clientEinvoiceInvoices() async => [
-    archive,
-  ];
+  Future<List<Map<String, dynamic>>> einvoiceInvoices({
+    String? documentType,
+  }) async => [archive];
+  @override
+  Future<List<Map<String, dynamic>>> clientEinvoiceInvoices({
+    String? documentType,
+  }) async => [archive];
   @override
   Future<List<Map<String, dynamic>>> einvoiceInbox() async => [
     {...archive, 'document_type': 'EINVOICE', 'profile': 'TICARIFATURA'},
   ];
   @override
   Future<List<Map<String, dynamic>>> clientEinvoiceInbox() => einvoiceInbox();
+  @override
+  Future<Map<String, dynamic>> electronicInvoiceBox({
+    required bool isClient,
+    required bool incoming,
+    String documentType = 'EINVOICE',
+    String? status,
+    String? startDate,
+    String? endDate,
+    String? customerIdentifier,
+    int page = 1,
+  }) async => {
+    'items': incoming ? await einvoiceInbox() : [archive],
+    'total': 1,
+    'page': incoming ? page - 1 : page,
+  };
 }
 
 void main() {
@@ -110,16 +154,17 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             theme: buildFinkitTheme(),
-            home: EInvoiceListPage(api: api, refreshKey: 0, isClient: client),
+            home: EInvoiceListPage(
+              api: api,
+              refreshKey: 0,
+              isClient: client,
+              documentType: 'EARCHIVE',
+            ),
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('E-Fatura ve E-Arşiv'), findsOneWidget);
-        expect(
-          find.textContaining('Gönderdiğiniz E-Fatura ve E-Arşiv'),
-          findsOneWidget,
-        );
-        expect(find.text('E-Arşiv'), findsOneWidget);
+        expect(find.text('E-Arşiv Faturalar'), findsWidgets);
+        expect(find.text('E-Arşiv'), findsWidgets);
         expect(find.text('İade'), findsOneWidget);
         await tester.tap(find.text('ARS2026000001'));
         await tester.pumpAndSettle();
@@ -128,9 +173,22 @@ void main() {
         expect(find.text('E-Arşiv'), findsWidgets);
         await tester.pageBack();
         await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildFinkitTheme(),
+            home: EInvoiceListPage(
+              api: api,
+              refreshKey: 1,
+              isClient: client,
+              initialIndex: 1,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('E-Fatura'), findsWidgets);
         await tester.tap(find.text('Gelen'));
         await tester.pumpAndSettle();
-        expect(find.text('E-Fatura'), findsOneWidget);
+        expect(find.text('E-Fatura'), findsWidgets);
         expect(
           find.textContaining('Size gönderilen E-Faturaları'),
           findsOneWidget,

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'api_client.dart';
 import 'pages/app_shell.dart';
 import 'pages/login_page.dart';
+import 'pages/reset_password_page.dart';
+import 'pages/verify_email_page.dart';
 import 'services/app_notifications.dart';
 import 'services/background_sync.dart';
 import 'services/system_ui.dart';
@@ -107,6 +109,7 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
 
   Future<void> _logout() async {
     await BackgroundSync.cancelAll();
+    await AppNotifications.instance.cancelAll();
     await _api.logout();
     if (!mounted) return;
     setState(() => _authenticated = false);
@@ -118,6 +121,28 @@ class _FinkitMobileAppState extends State<FinkitMobileApp>
       debugShowCheckedModeBanner: false,
       title: 'Finkit Mobil',
       theme: buildFinkitTheme(),
+      onGenerateRoute: (settings) {
+        final uri = Uri.tryParse(settings.name ?? '');
+        if (uri?.path == '/verify-email') {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => VerifyEmailPage(
+              api: _api,
+              token: uri!.queryParameters['token'] ?? '',
+            ),
+          );
+        }
+        if (uri?.path != '/reset-password') return null;
+        final token = uri!.queryParameters['token'] ?? '';
+        final role = uri.queryParameters['role']?.toUpperCase() == 'CLIENT'
+            ? 'CLIENT'
+            : 'ADVISOR';
+        return MaterialPageRoute<void>(
+          settings: settings,
+          builder: (_) =>
+              ResetPasswordPage(api: _api, token: token, role: role),
+        );
+      },
       home: !_ready
           ? const _SplashScreen()
           : _maintenanceMode

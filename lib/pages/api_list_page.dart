@@ -21,6 +21,7 @@ class ApiListPage extends StatefulWidget {
     this.trailingActions,
     this.searchHint,
     this.searchText,
+    this.filter,
   });
 
   final String title;
@@ -37,6 +38,7 @@ class ApiListPage extends StatefulWidget {
   final List<Widget>? trailingActions;
   final String? searchHint;
   final String Function(Map<String, dynamic> item)? searchText;
+  final bool Function(Map<String, dynamic> item)? filter;
 
   @override
   State<ApiListPage> createState() => _ApiListPageState();
@@ -83,9 +85,12 @@ class _ApiListPageState extends State<ApiListPage> {
         }
         final all = snapshot.data ?? const <Map<String, dynamic>>[];
         final query = _search.text.trim().toLowerCase();
-        final items = query.isEmpty || widget.searchText == null
+        final inFilters = widget.filter == null
             ? all
-            : all
+            : all.where(widget.filter!).toList();
+        final items = query.isEmpty || widget.searchText == null
+            ? inFilters
+            : inFilters
                   .where(
                     (item) =>
                         widget.searchText!(item).toLowerCase().contains(query),

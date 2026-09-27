@@ -4,9 +4,13 @@ import '../api_client.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'api_list_page.dart';
-import 'data_pages.dart' show SummaryGrid, SummaryItem;
+import 'data_pages.dart' show SalesPage, SummaryGrid, SummaryItem;
 import 'entry_forms.dart';
-import 'invoice_detail_page.dart';
+import 'product_detail_page.dart';
+import 'collection_management_page.dart';
+import 'supplier_payment_management_page.dart';
+import 'quote_form_page.dart';
+import 'purchase_invoice_management_page.dart';
 
 /// Liste + arama + isteğe bağlı "yeni kayıt" düğmesi olan ortak sayfa.
 /// Kayıt oluşturulduğunda liste kendini yeniler.
@@ -101,19 +105,42 @@ class _AccountingListPageState extends State<AccountingListPage> {
 }
 
 /// Ürün ve hizmet kartları.
-class ProductsPage extends StatelessWidget {
+class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key, required this.api, required this.refreshKey});
 
   final FinkitApi api;
   final int refreshKey;
 
   @override
+  State<ProductsPage> createState() => _ProductsPageState();
+}
+
+class _ProductsPageState extends State<ProductsPage> {
+  int _localRefresh = 0;
+
+  Future<void> _openProduct(Map<String, dynamic> item) async {
+    final id = (item['id'] as num?)?.toInt();
+    if (id == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ProductDetailPage(
+          api: widget.api,
+          productId: id,
+          onChanged: () {
+            if (mounted) setState(() => _localRefresh++);
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AccountingListPage(
       title: 'Ürün ve Hizmetler',
       subtitle: 'Satış fiyatı, KDV oranı ve stok maliyetlerini yönetin.',
-      refreshKey: refreshKey,
-      loader: api.products,
+      refreshKey: widget.refreshKey + _localRefresh,
+      loader: widget.api.products,
       createIcon: Icons.add_box_outlined,
       searchHint: 'Ürün, hizmet veya barkod ara',
       searchText: (item) =>
@@ -121,7 +148,7 @@ class ProductsPage extends StatelessWidget {
       emptyIcon: Icons.inventory_2_outlined,
       emptyTitle: 'Ürün bulunamadı',
       emptyDescription: 'Satışta kullanmak için ürün veya hizmet ekleyin.',
-      onCreate: (context) => showProductForm(context, api),
+      onCreate: (context) => showProductForm(context, widget.api),
       summaryBuilder: (items) {
         final stocked = items
             .where((item) => item['track_inventory'] == true)
@@ -142,27 +169,14 @@ class ProductsPage extends StatelessWidget {
             '${item['code'] ?? ''} · KDV %${_trimNumber(item['vat_rate'])} · ${item['unit'] ?? 'ADET'}',
         value: moneyText(item['sales_price']),
         valueSubtitle: 'Satış fiyatı',
-        onTap: () => showAccountingDetailSheet(
-          context,
-          title: item['name']?.toString() ?? 'Ürün',
-          rows: [
-            ('Kod', '${item['code'] ?? '-'}'),
-            ('Tip', item['product_type'] == 'SERVICE' ? 'Hizmet' : 'Ürün'),
-            ('Birim', '${item['unit'] ?? 'ADET'}'),
-            ('KDV', '%${_trimNumber(item['vat_rate'])}'),
-            ('Satış fiyatı', moneyText(item['sales_price'])),
-            ('Alış fiyatı', moneyText(item['purchase_price'])),
-            ('Maliyet', moneyText(item['manual_cost'])),
-            ('Barkod', '${item['barcode'] ?? '-'}'),
-          ],
-        ),
+        onTap: () => _openProduct(item),
       ),
     );
   }
 }
 
 /// Depolar.
-class WarehousesPage extends StatelessWidget {
+class WarehousesPage extends StatefulWidget {
   const WarehousesPage({
     super.key,
     required this.api,
@@ -173,17 +187,119 @@ class WarehousesPage extends StatelessWidget {
   final int refreshKey;
 
   @override
+  State<WarehousesPage> createState() => _WarehousesPageState();
+}
+
+class _WarehousesPageState extends State<WarehousesPage> {
+  int _localRefresh = 0;
+
+  Future<void> _open(Map<String, dynamic> warehouse) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              '${warehouse['name'] ?? 'Depo'}',
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            ListTile(
+              title: const Text('Kod'),
+              subtitle: Text('${warehouse['code'] ?? '-'}'),
+            ),
+            ListTile(
+              title: const Text('Konum'),
+              subtitle: Text(
+                '${warehouse['city'] ?? ''} ${warehouse['district'] ?? ''}'
+                    .trim(),
+              ),
+            ),
+            ListTile(
+              title: const Text('Adres'),
+              subtitle: Text('${warehouse['address'] ?? '-'}'),
+            ),
+            ListTile(
+              title: const Text('Durum'),
+              subtitle: Text(
+                warehouse['is_active'] == false ? 'Pasif' : 'Aktif',
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Depoyu Düzenle'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                if (!mounted) return;
+                final changed = await showWarehouseForm(
+                  context,
+                  widget.api,
+                  warehouse: warehouse,
+                );
+                if (changed && mounted) setState(() => _localRefresh++);
+              },
+            ),
+            if (warehouse['is_active'] != false)
+              ListTile(
+                leading: const Icon(Icons.archive_outlined),
+                title: const Text('Depoyu Pasifleştir'),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  if (!mounted) return;
+                  final approved = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Depoyu pasifleştir'),
+                      content: Text(
+                        '${warehouse['name']} deposu yeni işlemlerde kullanılmayacak.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Vazgeç'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          child: const Text('Pasifleştir'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (approved != true) return;
+                  try {
+                    await widget.api.updateWarehouse(
+                      (warehouse['id'] as num).toInt(),
+                      {'is_active': false},
+                    );
+                    if (mounted) setState(() => _localRefresh++);
+                  } catch (error) {
+                    if (mounted)
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('$error')));
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AccountingListPage(
       title: 'Depolar',
       subtitle: 'Şube ve depo tanımlarını yönetin.',
-      refreshKey: refreshKey,
-      loader: api.warehouses,
+      refreshKey: widget.refreshKey + _localRefresh,
+      loader: widget.api.warehouses,
       createIcon: Icons.add_business_outlined,
       emptyIcon: Icons.warehouse_outlined,
       emptyTitle: 'Depo bulunamadı',
       emptyDescription: 'Stok takibi için en az bir depo tanımlayın.',
-      onCreate: (context) => showWarehouseForm(context, api),
+      onCreate: (context) => showWarehouseForm(context, widget.api),
       itemBuilder: (context, item) => DataRowCard(
         icon: Icons.warehouse_outlined,
         title: item['name']?.toString() ?? 'Depo',
@@ -191,6 +307,7 @@ class WarehousesPage extends StatelessWidget {
             '${item['code'] ?? ''} · ${item['city'] ?? 'Şehir belirtilmedi'}',
         value: item['is_default'] == true ? 'Varsayılan' : '',
         valueSubtitle: item['is_active'] == true ? 'Aktif' : 'Pasif',
+        onTap: () => _open(item),
       ),
     );
   }
@@ -307,119 +424,379 @@ class QuotesPage extends StatefulWidget {
 }
 
 class _QuotesPageState extends State<QuotesPage> {
-  int _localRefresh = 0;
+  final _search = TextEditingController();
+  final _start = TextEditingController();
+  final _end = TextEditingController();
+  String _status = '';
+  int? _partnerId;
+  int _page = 1;
+  late Future<Map<String, dynamic>> _future;
+  late Future<List<Map<String, dynamic>>> _partners;
 
   @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'Teklifler',
-      subtitle: 'Müşteriye verilen teklifleri hazırlayın ve faturaya çevirin.',
-      refreshKey: widget.refreshKey + _localRefresh,
-      loader: widget.api.quotes,
-      createIcon: Icons.request_quote_outlined,
-      searchHint: 'Teklif numarası ara',
-      searchText: (item) => '${item['number']} ${item['status']}',
-      emptyIcon: Icons.request_quote_outlined,
-      emptyTitle: 'Teklif bulunamadı',
-      emptyDescription: 'Yeni teklif oluşturarak satış sürecini başlatın.',
-      onCreate: (context) => showQuoteForm(context, widget.api),
-      summaryBuilder: (items) {
-        final total = items.fold<double>(
-          0,
-          (sum, item) =>
-              sum + (double.tryParse('${item['gross_amount']}') ?? 0),
-        );
-        final open = items
-            .where(
-              (item) => item['status'] == 'DRAFT' || item['status'] == 'SENT',
-            )
-            .length;
-        return SummaryGrid(
-          items: [
-            SummaryItem(
-              'Teklif Tutarı',
-              moneyText(total),
-              Icons.summarize_outlined,
-            ),
-            SummaryItem('Açık Teklif', '$open', Icons.hourglass_bottom_rounded),
-          ],
-        );
-      },
-      itemBuilder: (context, item) => DataRowCard(
-        icon: Icons.request_quote_outlined,
-        title: item['number']?.toString() ?? 'Teklif',
-        subtitle:
-            '${dateText(item['issue_date'])} · Geçerlilik: ${dateText(item['valid_until'])}',
-        value: moneyText(item['gross_amount']),
-        valueSubtitle: statusLabel(item['status']?.toString()),
-        status: item['status']?.toString(),
-        onTap: () => _openDetail(context, item),
-      ),
+  void initState() {
+    super.initState();
+    _reload();
+    _partners = widget.api.partners(type: 'CUSTOMER');
+  }
+
+  @override
+  void didUpdateWidget(covariant QuotesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshKey != widget.refreshKey) _reload();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _start.dispose();
+    _end.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    _future = widget.api.quotePage(
+      page: _page,
+      search: _search.text.trim(),
+      status: _status,
+      partnerId: _partnerId,
+      startDate: _start.text.trim(),
+      endDate: _end.text.trim(),
     );
   }
+
+  void _filter() {
+    final start = _start.text.trim();
+    final end = _end.text.trim();
+    final date = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if ((start.isNotEmpty && !date.hasMatch(start)) ||
+        (end.isNotEmpty && !date.hasMatch(end)) ||
+        (start.isNotEmpty && end.isNotEmpty && start.compareTo(end) > 0)) {
+      _notify('Geçerli bir tarih aralığı girin.');
+      return;
+    }
+    setState(() {
+      _page = 1;
+      _reload();
+    });
+  }
+
+  Future<void> _create() async {
+    try {
+      final created = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(builder: (_) => QuoteFormPage(api: widget.api)),
+      );
+      if (created == true && mounted) setState(_reload);
+    } catch (error) {
+      _notify('$error');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: () async => setState(_reload),
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      children: [
+        PageTitle(
+          title: 'Teklifler',
+          subtitle:
+              'Müşteriye verilen teklifleri hazırlayın ve faturaya çevirin.',
+          trailing: IconButton.filled(
+            tooltip: 'Yeni teklif',
+            onPressed: _create,
+            icon: const Icon(Icons.add),
+          ),
+        ),
+        TextField(
+          controller: _search,
+          decoration: const InputDecoration(labelText: 'Teklif numarası ara'),
+          onSubmitted: (_) => _filter(),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _status,
+          decoration: const InputDecoration(labelText: 'Durum'),
+          items: const [
+            DropdownMenuItem(value: '', child: Text('Tümü')),
+            DropdownMenuItem(value: 'DRAFT', child: Text('Taslak')),
+            DropdownMenuItem(value: 'SENT', child: Text('Gönderildi')),
+            DropdownMenuItem(value: 'ACCEPTED', child: Text('Kabul edildi')),
+            DropdownMenuItem(value: 'REJECTED', child: Text('Reddedildi')),
+            DropdownMenuItem(
+              value: 'CONVERTED',
+              child: Text('Faturaya dönüştü'),
+            ),
+            DropdownMenuItem(value: 'CANCELLED', child: Text('İptal edildi')),
+          ],
+          onChanged: (value) => setState(() {
+            _status = value ?? '';
+            _page = 1;
+            _reload();
+          }),
+        ),
+        const SizedBox(height: 8),
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _partners,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) return const SizedBox.shrink();
+            return DropdownButtonFormField<int?>(
+              initialValue: _partnerId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Müşteri'),
+              items: [
+                const DropdownMenuItem<int?>(value: null, child: Text('Tümü')),
+                ...snapshot.data!.map(
+                  (p) => DropdownMenuItem<int?>(
+                    value: (p['id'] as num).toInt(),
+                    child: Text(
+                      '${p['name']}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (value) => setState(() {
+                _partnerId = value;
+                _page = 1;
+                _reload();
+              }),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _start,
+                decoration: const InputDecoration(
+                  labelText: 'Başlangıç',
+                  hintText: 'YYYY-AA-GG',
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _end,
+                decoration: const InputDecoration(
+                  labelText: 'Bitiş',
+                  hintText: 'YYYY-AA-GG',
+                ),
+              ),
+            ),
+          ],
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _filter,
+            icon: const Icon(Icons.filter_alt_outlined),
+            label: const Text('Filtrele'),
+          ),
+        ),
+        FutureBuilder<Map<String, dynamic>>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData && !snapshot.hasError) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return TextButton(
+                onPressed: () => setState(_reload),
+                child: Text('Teklifler yüklenemedi: ${snapshot.error}'),
+              );
+            }
+            final items = (snapshot.data?['items'] as List? ?? const [])
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
+            final total =
+                int.tryParse('${snapshot.data?['total']}') ?? items.length;
+            return Column(
+              children: [
+                if (items.isEmpty)
+                  const EmptyState(
+                    icon: Icons.request_quote_outlined,
+                    title: 'Teklif bulunamadı',
+                    description: 'Seçilen filtrelerde teklif yok.',
+                  ),
+                for (final item in items)
+                  DataRowCard(
+                    icon: Icons.request_quote_outlined,
+                    title: item['number']?.toString() ?? 'Teklif',
+                    subtitle:
+                        '${dateText(item['issue_date'])} · Geçerlilik: ${dateText(item['valid_until'])}',
+                    value: moneyText(item['gross_amount']),
+                    valueSubtitle: statusLabel(item['status']?.toString()),
+                    status: item['status']?.toString(),
+                    onTap: () => _openDetail(context, item),
+                  ),
+                if (total > 20 || _page > 1)
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Önceki sayfa',
+                        onPressed: _page <= 1
+                            ? null
+                            : () => setState(() {
+                                _page--;
+                                _reload();
+                              }),
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'Sayfa $_page · $total teklif',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Sonraki sayfa',
+                        onPressed: _page * 20 >= total
+                            ? null
+                            : () => setState(() {
+                                _page++;
+                                _reload();
+                              }),
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    ),
+  );
 
   Future<void> _openDetail(
     BuildContext context,
     Map<String, dynamic> quote,
   ) async {
-    final status = quote['status']?.toString() ?? 'DRAFT';
+    final id = int.tryParse('${quote['id']}');
+    if (id == null) return;
+    Map<String, dynamic> detail;
+    try {
+      detail = await widget.api.quoteDetail(id);
+    } catch (error) {
+      _notify('$error');
+      return;
+    }
+    if (!mounted || !context.mounted) return;
+    final status = detail['status']?.toString() ?? 'DRAFT';
+    final lines = (detail['lines'] as List? ?? const [])
+        .whereType<Map>()
+        .map((line) => Map<String, dynamic>.from(line))
+        .toList();
     final action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: FinkitColors.canvas,
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              quote['number']?.toString() ?? 'Teklif',
-              style: Theme.of(sheetContext).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            AccountingRows(
-              rows: [
-                ('Durum', statusLabel(status)),
-                ('Tarih', dateText(quote['issue_date'])),
-                ('Geçerlilik', dateText(quote['valid_until'])),
-                ('Net', moneyText(quote['net_amount'])),
-                ('KDV', moneyText(quote['vat_amount'])),
-                ('Genel toplam', moneyText(quote['gross_amount'])),
-              ],
-            ),
-            const SizedBox(height: 18),
-            if (status != 'ACCEPTED')
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(sheetContext, 'ACCEPTED'),
-                  child: const Text('Müşteri kabul etti'),
+      builder: (sheetContext) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.82,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            children: [
+              Text(
+                detail['number']?.toString() ?? 'Teklif',
+                style: Theme.of(sheetContext).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              AccountingRows(
+                rows: [
+                  ('Durum', statusLabel(status)),
+                  ('Tarih', dateText(detail['issue_date'])),
+                  ('Geçerlilik', dateText(detail['valid_until'])),
+                  ('Net', moneyText(detail['net_amount'])),
+                  ('KDV', moneyText(detail['vat_amount'])),
+                  ('Genel toplam', moneyText(detail['gross_amount'])),
+                ],
+              ),
+              if (lines.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Kalemler',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
-              ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => Navigator.pop(sheetContext, 'CONVERT'),
-                icon: const Icon(Icons.post_add_rounded, size: 18),
-                label: const Text('Faturaya Çevir'),
-              ),
-            ),
-          ],
+                for (final line in lines)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${line['description'] ?? 'Kalem'}'),
+                    subtitle: Text(
+                      '${line['quantity'] ?? 0} ${line['unit'] ?? ''} · KDV %${line['vat_rate'] ?? 0}',
+                    ),
+                    trailing: Text(moneyText(line['line_total'])),
+                  ),
+              ],
+              const SizedBox(height: 8),
+              if (status == 'DRAFT')
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'SENT'),
+                  child: const Text('Gönderildi'),
+                ),
+              if (status == 'DRAFT' || status == 'SENT') ...[
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'ACCEPTED'),
+                  child: const Text('Kabul edildi'),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'REJECTED'),
+                  child: const Text('Reddedildi'),
+                ),
+              ],
+              if (status != 'CONVERTED') ...[
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'REVISE'),
+                  child: const Text('Revize et'),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'COPY'),
+                  child: const Text('Kopyala'),
+                ),
+              ],
+              if (status != 'CONVERTED' &&
+                  status != 'CANCELLED' &&
+                  status != 'REJECTED')
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(sheetContext, 'CANCELLED'),
+                  child: const Text('İptal et'),
+                ),
+              if (status == 'DRAFT' || status == 'SENT' || status == 'ACCEPTED')
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(sheetContext, 'CONVERT'),
+                  icon: const Icon(Icons.post_add_rounded, size: 18),
+                  label: const Text('Faturaya çevir'),
+                ),
+            ],
+          ),
         ),
       ),
     );
     if (action == null || !mounted) return;
     try {
       if (action == 'CONVERT') {
-        await widget.api.convertQuote(int.parse('${quote['id']}'));
+        await widget.api.convertQuote(id);
         _notify('Teklif faturaya çevrildi');
+      } else if (action == 'COPY' || action == 'REVISE') {
+        await widget.api.copyQuote(id, revise: action == 'REVISE');
+        _notify(
+          action == 'REVISE' ? 'Teklif revize edildi' : 'Teklif kopyalandı',
+        );
       } else {
-        await widget.api.setQuoteStatus(int.parse('${quote['id']}'), action);
+        await widget.api.setQuoteStatus(id, action);
         _notify('Teklif durumu güncellendi');
       }
-      setState(() => _localRefresh++);
+      setState(_reload);
     } catch (error) {
       _notify(error.toString());
     }
@@ -433,127 +810,37 @@ class _QuotesPageState extends State<QuotesPage> {
 }
 
 /// Gelen (alış) faturaları.
-class PurchaseInvoicesPage extends StatefulWidget {
+class PurchaseInvoicesPage extends StatelessWidget {
   const PurchaseInvoicesPage({
     super.key,
     required this.api,
     required this.refreshKey,
   });
-
   final FinkitApi api;
   final int refreshKey;
 
   @override
-  State<PurchaseInvoicesPage> createState() => _PurchaseInvoicesPageState();
+  Widget build(BuildContext context) =>
+      PurchaseInvoiceManagementPage(api: api, refreshKey: refreshKey);
 }
 
-class _PurchaseInvoicesPageState extends State<PurchaseInvoicesPage> {
-  int _localRefresh = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'Gelen Faturalar',
-      subtitle: 'Tedarikçi E-Faturalarını, E-Arşiv belgelerini ve manuel alış kayıtlarını eşleştirip onaylayın.',
-      refreshKey: widget.refreshKey + _localRefresh,
-      loader: widget.api.purchaseInvoices,
-      createIcon: Icons.receipt_long_outlined,
-      searchHint: 'Fatura numarası ara',
-      searchText: (item) =>
-          '${item['number']} ${item['status']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
-      emptyIcon: Icons.receipt_long_outlined,
-      emptyTitle: 'Gelen fatura yok',
-      emptyDescription:
-          'Tedarikçi faturasını elle girin veya e-faturadan çekin.',
-      onCreate: (context) => showPurchaseInvoiceForm(context, widget.api),
-      summaryBuilder: (items) {
-        final total = items.fold<double>(
-          0,
-          (sum, item) =>
-              sum + (double.tryParse('${item['gross_amount']}') ?? 0),
-        );
-        final unpaid = items
-            .where((item) => item['payment_status'] != 'PAID')
-            .fold<double>(
-              0,
-              (sum, item) =>
-                  sum + (double.tryParse('${item['gross_amount']}') ?? 0),
-            );
-        return SummaryGrid(
-          items: [
-            SummaryItem(
-              'Toplam Alış',
-              moneyText(total),
-              Icons.receipt_long_outlined,
-            ),
-            SummaryItem('Ödenecek', moneyText(unpaid), Icons.schedule_rounded),
-          ],
-        );
-      },
-      itemBuilder: (context, item) {
-        final status = item['status']?.toString() ?? 'DRAFT';
-        return DataRowCard(
-          document: item,
-          icon: Icons.receipt_long_outlined,
-          title: item['number']?.toString() ?? 'Taslak Alış Faturası',
-          subtitle: '${dateText(item['issue_date'])} · ${statusLabel(status)}',
-          value: moneyText(item['gross_amount']),
-          valueSubtitle: statusLabel(item['payment_status']?.toString()),
-          status: status,
-          onTap: () => _openDetail(context, item),
-        );
-      },
-    );
-  }
-
-  Future<void> _openDetail(
-    BuildContext context,
-    Map<String, dynamic> invoice,
-  ) async {
-    await openInvoiceDetail(context, widget.api, invoice, purchase: true);
-    if (mounted) setState(() => _localRefresh++);
-  }
-}
-
-/// İade faturaları.
+/// İade faturaları, satış kayıtlarının sunucu filtreli IADE görünümüdür.
 class SalesReturnsPage extends StatelessWidget {
   const SalesReturnsPage({
     super.key,
     required this.api,
     required this.refreshKey,
   });
-
   final FinkitApi api;
   final int refreshKey;
 
   @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'İade Faturaları',
-      subtitle: 'E-Fatura, E-Arşiv ve manuel iade kayıtlarını cari ve stok etkileriyle izleyin.',
-      refreshKey: refreshKey,
-      loader: () => api.salesInvoices(type: 'IADE'),
-      createIcon: Icons.assignment_return_outlined,
-      searchHint: 'İade faturası ara',
-      searchText: (item) =>
-          '${item['number']} ${item['status']} ${documentTypeLabel(item)} ${invoiceKindLabel(item) ?? ''}',
-      emptyIcon: Icons.assignment_return_outlined,
-      emptyTitle: 'İade faturası yok',
-      emptyDescription: 'İade faturası kesildiğinde burada listelenir.',
-      onCreate: (context) => showSalesInvoiceForm(context, api, type: 'IADE'),
-      itemBuilder: (context, item) => DataRowCard(
-        document: item,
-        icon: Icons.assignment_return_outlined,
-        title: item['number']?.toString() ?? 'İade Faturası',
-        subtitle:
-            '${dateText(item['issue_date'])} · ${statusLabel(item['status']?.toString())}',
-        value: moneyText(item['gross_amount']),
-        valueSubtitle: statusLabel(item['payment_status']?.toString()),
-        status: item['status']?.toString(),
-        onTap: () => openInvoiceDetail(context, api, item),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SalesPage(
+    api: api,
+    refreshKey: refreshKey,
+    onQuickAction: () {},
+    initialInvoiceType: 'IADE',
+  );
 }
 
 /// Çalışanlar.
@@ -839,53 +1126,8 @@ class CollectionsPage extends StatelessWidget {
   final int refreshKey;
 
   @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'Tahsilatlar',
-      subtitle: 'Müşterilerden gelen tahsilatlar ve fatura eşleşmeleri.',
-      refreshKey: refreshKey,
-      loader: api.collections,
-      emptyIcon: Icons.call_received_rounded,
-      emptyTitle: 'Tahsilat yok',
-      emptyDescription: 'Tahsilat kaydedildiğinde burada listelenir.',
-      summaryBuilder: (items) {
-        final total = items.fold<double>(
-          0,
-          (sum, item) => sum + (double.tryParse('${item['try_amount']}') ?? 0),
-        );
-        final open = items
-            .where((item) => item['status'] != 'CANCELLED')
-            .fold<double>(
-              0,
-              (sum, item) =>
-                  sum + (double.tryParse('${item['unallocated_amount']}') ?? 0),
-            );
-        return SummaryGrid(
-          items: [
-            SummaryItem(
-              'Tahsil Edilen',
-              moneyText(total),
-              Icons.savings_outlined,
-            ),
-            SummaryItem(
-              'Avans',
-              moneyText(open),
-              Icons.account_balance_wallet_outlined,
-            ),
-          ],
-        );
-      },
-      itemBuilder: (context, item) => DataRowCard(
-        icon: Icons.call_received_rounded,
-        title: moneyText(item['amount']),
-        subtitle:
-            '${dateText(item['collection_date'])} · ${item['payment_method'] ?? 'HAVALE'}',
-        value: moneyText(item['allocated_amount']),
-        valueSubtitle: 'Faturaya işlendi',
-        status: item['status']?.toString(),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      CollectionManagementPage(api: api, refreshKey: refreshKey);
 }
 
 /// Tedarikçi ödemeleri.
@@ -904,47 +1146,11 @@ class SupplierPaymentsPage extends StatefulWidget {
 }
 
 class _SupplierPaymentsPageState extends State<SupplierPaymentsPage> {
-  final int _localRefresh = 0;
-
   @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'Ödemeler',
-      subtitle: 'Tedarikçilere yapılan ödemeler ve fatura eşleşmeleri.',
-      refreshKey: widget.refreshKey + _localRefresh,
-      loader: widget.api.supplierPayments,
-      createIcon: Icons.payments_outlined,
-      emptyIcon: Icons.payments_outlined,
-      emptyTitle: 'Ödeme yok',
-      emptyDescription: 'Tedarikçi ödemesi kaydedildiğinde burada listelenir.',
-      onCreate: (context) => showSupplierPaymentForm(context, widget.api),
-      summaryBuilder: (items) {
-        final total = items.fold<double>(
-          0,
-          (sum, item) => sum + (double.tryParse('${item['try_amount']}') ?? 0),
-        );
-        return SummaryGrid(
-          items: [
-            SummaryItem('Ödenen', moneyText(total), Icons.payments_outlined),
-            SummaryItem(
-              'Kayıt',
-              '${items.length}',
-              Icons.receipt_long_outlined,
-            ),
-          ],
-        );
-      },
-      itemBuilder: (context, item) => DataRowCard(
-        icon: Icons.payments_outlined,
-        title: moneyText(item['amount']),
-        subtitle:
-            '${dateText(item['payment_date'])} · ${item['payment_method'] ?? 'HAVALE'}',
-        value: moneyText(item['allocated_amount']),
-        valueSubtitle: 'Faturaya işlendi',
-        status: item['status']?.toString(),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SupplierPaymentManagementPage(
+    api: widget.api,
+    refreshKey: widget.refreshKey,
+  );
 }
 
 /// Kasa ve banka hesapları.
@@ -963,53 +1169,169 @@ class FinancialAccountsPage extends StatefulWidget {
 }
 
 class _FinancialAccountsPageState extends State<FinancialAccountsPage> {
-  final int _localRefresh = 0;
+  final _search = TextEditingController();
+  String _type = '';
+  String _currency = '';
+  late Future<List<Map<String, dynamic>>> _future;
 
   @override
-  Widget build(BuildContext context) {
-    return AccountingListPage(
-      title: 'Kasa ve Bankalar',
-      subtitle: 'Kasa, banka, POS ve kredi kartı hesaplarını yönetin.',
-      refreshKey: widget.refreshKey + _localRefresh,
-      loader: widget.api.accounts,
-      createIcon: Icons.account_balance_outlined,
-      emptyIcon: Icons.account_balance_wallet_outlined,
-      emptyTitle: 'Hesap bulunamadı',
-      emptyDescription: 'Kasa veya banka hesabı tanımlayın.',
-      onCreate: (context) => showFinancialAccountForm(context, widget.api),
-      summaryBuilder: (items) {
-        final balance = items.fold<double>(
-          0,
-          (sum, item) =>
-              sum + (double.tryParse('${item['current_balance']}') ?? 0),
-        );
-        return SummaryGrid(
-          items: [
-            SummaryItem(
-              'Toplam Bakiye',
-              moneyText(balance),
-              Icons.savings_outlined,
-            ),
-            SummaryItem(
-              'Hesap',
-              '${items.length}',
-              Icons.account_balance_outlined,
-            ),
-          ],
-        );
-      },
-      itemBuilder: (context, item) => DataRowCard(
-        icon: item['account_type'] == 'CASH'
-            ? Icons.point_of_sale_outlined
-            : Icons.account_balance_outlined,
-        title: item['name']?.toString() ?? 'Hesap',
-        subtitle:
-            '${item['bank_name'] ?? _accountTypeLabel(item['account_type']?.toString())} · ${item['iban'] ?? 'IBAN yok'}',
-        value: moneyText(item['current_balance']),
-        valueSubtitle: '${item['currency'] ?? 'TRY'} bakiye',
-      ),
-    );
+  void initState() {
+    super.initState();
+    _reload();
   }
+
+  @override
+  void didUpdateWidget(covariant FinancialAccountsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshKey != widget.refreshKey) setState(_reload);
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    _future = widget.api.accounts();
+  }
+
+  Future<void> _create() async {
+    final created = await showFinancialAccountForm(context, widget.api);
+    if (created && mounted) setState(_reload);
+  }
+
+  String _balanceText(Object? raw, String currency) {
+    if (currency == 'TRY') return moneyText(raw);
+    final value = num.tryParse('$raw') ?? 0;
+    return '${value.toStringAsFixed(2)} $currency';
+  }
+
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(
+    onRefresh: () async => setState(_reload),
+    child: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      children: [
+        PageTitle(
+          title: 'Kasa ve Bankalar',
+          subtitle: 'Kasa, banka, POS ve kredi kartı hesaplarını yönetin.',
+          trailing: IconButton.filled(
+            tooltip: 'Yeni hesap',
+            onPressed: _create,
+            icon: const Icon(Icons.add),
+          ),
+        ),
+        TextField(
+          controller: _search,
+          decoration: const InputDecoration(
+            labelText: 'Hesap, banka veya IBAN ara',
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _type,
+          decoration: const InputDecoration(labelText: 'Hesap türü'),
+          items: const [
+            DropdownMenuItem(value: '', child: Text('Tümü')),
+            DropdownMenuItem(value: 'CASH', child: Text('Kasa')),
+            DropdownMenuItem(value: 'BANK', child: Text('Banka')),
+            DropdownMenuItem(value: 'POS', child: Text('POS')),
+            DropdownMenuItem(value: 'CREDIT_CARD', child: Text('Kredi kartı')),
+          ],
+          onChanged: (value) => setState(() => _type = value ?? ''),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          initialValue: _currency,
+          decoration: const InputDecoration(labelText: 'Para birimi'),
+          items: const [
+            DropdownMenuItem(value: '', child: Text('Tümü')),
+            DropdownMenuItem(value: 'TRY', child: Text('TRY')),
+            DropdownMenuItem(value: 'USD', child: Text('USD')),
+            DropdownMenuItem(value: 'EUR', child: Text('EUR')),
+          ],
+          onChanged: (value) => setState(() => _currency = value ?? ''),
+        ),
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError)
+              return TextButton(
+                onPressed: () => setState(_reload),
+                child: Text('Hesaplar alınamadı: ${snapshot.error}'),
+              );
+            if (!snapshot.hasData)
+              return const Center(child: CircularProgressIndicator());
+            final search = _search.text.trim().toLowerCase();
+            final items = snapshot.data!
+                .where(
+                  (item) =>
+                      (_type.isEmpty || item['account_type'] == _type) &&
+                      (_currency.isEmpty || item['currency'] == _currency) &&
+                      (search.isEmpty ||
+                          '${item['name']} ${item['bank_name']} ${item['iban']}'
+                              .toLowerCase()
+                              .contains(search)),
+                )
+                .toList();
+            final balances = <String, double>{};
+            for (final item in items) {
+              final currency = '${item['currency'] ?? 'TRY'}';
+              balances[currency] =
+                  (balances[currency] ?? 0) +
+                  (double.tryParse('${item['current_balance']}') ?? 0);
+            }
+            return Column(
+              children: [
+                SummaryGrid(
+                  items: [
+                    SummaryItem(
+                      'Hesap',
+                      '${items.length}',
+                      Icons.account_balance_outlined,
+                    ),
+                    for (final entry in balances.entries)
+                      SummaryItem(
+                        '${entry.key} bakiye',
+                        _balanceText(entry.value, entry.key),
+                        Icons.savings_outlined,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (items.isEmpty)
+                  const EmptyState(
+                    icon: Icons.account_balance_wallet_outlined,
+                    title: 'Hesap bulunamadı',
+                    description: 'Seçilen filtrelerde hesap yok.',
+                  ),
+                for (final item in items)
+                  DataRowCard(
+                    icon: item['account_type'] == 'CASH'
+                        ? Icons.point_of_sale_outlined
+                        : Icons.account_balance_outlined,
+                    title: item['name']?.toString() ?? 'Hesap',
+                    subtitle: [
+                      '${item['bank_name'] ?? _accountTypeLabel(item['account_type']?.toString())}',
+                      if ('${item['branch_name'] ?? ''}'.isNotEmpty)
+                        '${item['branch_name']}',
+                      '${item['iban'] ?? 'IBAN yok'}',
+                    ].join(' · '),
+                    value: _balanceText(
+                      item['current_balance'],
+                      '${item['currency'] ?? 'TRY'}',
+                    ),
+                    valueSubtitle: '${item['currency'] ?? 'TRY'} bakiye',
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    ),
+  );
 }
 
 String _accountTypeLabel(String? type) => switch (type) {
@@ -1100,10 +1422,14 @@ class ReminderRulesPage extends StatefulWidget {
     super.key,
     required this.api,
     required this.refreshKey,
+    this.isClient = false,
+    this.isSubUser = false,
   });
 
   final FinkitApi api;
   final int refreshKey;
+  final bool isClient;
+  final bool isSubUser;
 
   @override
   State<ReminderRulesPage> createState() => _ReminderRulesPageState();
@@ -1111,6 +1437,12 @@ class ReminderRulesPage extends StatefulWidget {
 
 class _ReminderRulesPageState extends State<ReminderRulesPage> {
   Future<List<Map<String, dynamic>>>? _future;
+  Future<
+    ({Map<String, dynamic> profile, List<Map<String, dynamic>> templates})
+  >?
+  _settings;
+  String? _templateId;
+  bool _savingTemplate = false;
   bool _running = false;
 
   @override
@@ -1128,10 +1460,60 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
   void _load() {
     setState(() {
       _future = widget.api.reminderRules();
+      if (!widget.isClient && !widget.isSubUser) {
+        _settings = _loadSettings();
+        _templateId = null;
+      }
     });
   }
 
+  Future<({Map<String, dynamic> profile, List<Map<String, dynamic>> templates})>
+  _loadSettings() async {
+    final profile = await widget.api.advisorProfile();
+    final templates = await widget.api.messageTemplates();
+    return (profile: profile, templates: templates);
+  }
+
+  Future<void> _saveTemplate(String selected) async {
+    setState(() => _savingTemplate = true);
+    try {
+      await widget.api.setAdvisorReminderTemplate(
+        selected.isEmpty ? null : int.parse(selected),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hatırlatma şablonu kaydedildi')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _savingTemplate = false);
+    }
+  }
+
   Future<void> _runReminders() async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hatırlatmaları gönder'),
+        content: const Text(
+          'Bugün ödeme vadesi gelen mükelleflere şimdi e-posta hatırlatması gönderilsin mi?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Gönder'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _running = true);
     try {
@@ -1151,6 +1533,11 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
     if (created && mounted) _load();
   }
 
+  Future<void> _editRule(Map<String, dynamic> rule) async {
+    final updated = await showReminderRuleForm(context, widget.api, rule: rule);
+    if (updated && mounted) _load();
+  }
+
   Future<void> _toggle(Map<String, dynamic> rule, bool value) async {
     try {
       await widget.api.updateReminderRule(
@@ -1166,6 +1553,24 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
   }
 
   Future<void> _delete(Map<String, dynamic> rule) async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Kuralı sil'),
+        content: const Text('Bu hatırlatma kuralı silinsin mi?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Sil'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
     try {
       await widget.api.deleteReminderRule(int.parse('${rule['id']}'));
       _load();
@@ -1213,53 +1618,134 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
                 title: 'Hatırlatma Kuralları',
                 subtitle: 'Vadesi yaklaşan ödemeler için otomatik SMS veya e-posta hatırlatması.',
               ),
-              SurfaceCard(
-                dark: true,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Hatırlatmaları elle çalıştır',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Kurallara uyan mükelleflere hemen hatırlatma gönderilir.',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 11.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: _running ? null : _runReminders,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: FinkitColors.ink,
+              if (!widget.isClient && !widget.isSubUser)
+                FutureBuilder<
+                  ({
+                    Map<String, dynamic> profile,
+                    List<Map<String, dynamic>> templates,
+                  })
+                >(
+                  future: _settings,
+                  builder: (context, settings) {
+                    if (settings.connectionState != ConnectionState.done) {
+                      return const LoadingState();
+                    }
+                    if (settings.hasError) {
+                      return TextButton(
+                        onPressed: _load,
+                        child: Text(
+                          'Şablon ayarı alınamadı: ${settings.error} · Tekrar dene',
                         ),
-                        icon: _running
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                      );
+                    }
+                    final profile = settings.data!.profile;
+                    final templates = settings.data!.templates;
+                    final selected =
+                        _templateId ??
+                        '${profile['payment_reminder_template_id'] ?? ''}';
+                    return SurfaceCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'E-posta hatırlatma şablonu',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            initialValue: selected,
+                            decoration: const InputDecoration(
+                              labelText: 'Şablon',
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('Varsayılan sistem mesajı'),
+                              ),
+                              if (selected.isNotEmpty &&
+                                  !templates.any(
+                                    (item) => '${item['id']}' == selected,
+                                  ))
+                                DropdownMenuItem(
+                                  value: selected,
+                                  child: const Text('Mevcut şablon'),
                                 ),
-                              )
-                            : const Icon(Icons.send_rounded, size: 18),
-                        label: Text(
-                          _running ? 'Gönderiliyor…' : 'Şimdi Gönder',
+                              for (final item in templates)
+                                DropdownMenuItem(
+                                  value: '${item['id']}',
+                                  child: Text(
+                                    '${item['name']}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            onChanged: (value) => _templateId = value ?? '',
+                          ),
+                          const SizedBox(height: 8),
+                          FilledButton(
+                            onPressed: _savingTemplate
+                                ? null
+                                : () => _saveTemplate(_templateId ?? selected),
+                            child: Text(
+                              _savingTemplate
+                                  ? 'Kaydediliyor…'
+                                  : 'Şablonu Kaydet',
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              if (!widget.isClient)
+                SurfaceCard(
+                  dark: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Hatırlatmaları elle çalıştır',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        'Kurallara uyan mükelleflere hemen hatırlatma gönderilir.',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 11.5,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _running ? null : _runReminders,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: FinkitColors.ink,
+                          ),
+                          icon: _running
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded, size: 18),
+                          label: Text(
+                            _running ? 'Gönderiliyor…' : 'Şimdi Gönder',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               const SectionHeader(title: 'Kurallar'),
               if (rules.isEmpty)
                 const EmptyState(
@@ -1319,13 +1805,22 @@ class _ReminderRulesPageState extends State<ReminderRulesPage> {
                             value: rule['is_active'] != false,
                             onChanged: (value) => _toggle(rule, value),
                           ),
-                          IconButton(
-                            tooltip: 'Sil',
-                            onPressed: () => _delete(rule),
-                            icon: const Icon(
-                              Icons.delete_outline_rounded,
-                              color: FinkitColors.muted,
-                            ),
+                          PopupMenuButton<String>(
+                            tooltip: 'Kural işlemleri',
+                            onSelected: (action) {
+                              if (action == 'edit') _editRule(rule);
+                              if (action == 'delete') _delete(rule);
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Text('Düzenle'),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Sil'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
