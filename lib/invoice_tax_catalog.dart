@@ -73,7 +73,13 @@ List<InvoiceTaxKind> availableInvoiceTaxes(
         .toList();
   }
   if ({'SATIS', 'IADE'}.contains(invoiceType)) {
-    return invoiceTaxKinds.where((kind) => kind.mode != 'SPECIAL').toList();
+    return invoiceTaxKinds
+        .where(
+          (kind) =>
+              kind.mode != 'SPECIAL' &&
+              (invoiceType != 'SATIS' || !{'0022', '9021'}.contains(kind.code)),
+        )
+        .toList();
   }
   return [];
 }

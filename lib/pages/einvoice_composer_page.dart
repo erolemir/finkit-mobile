@@ -241,6 +241,7 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
   bool _sendEmail = false;
   bool _busy = false;
   Map<String, dynamic>? _number;
+  Map<String, dynamic>? _account;
   Map<String, dynamic>? _recipient;
   String? _error;
 
@@ -325,6 +326,40 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
     } else {
       _lines.add(_ComposerLine());
     }
+    _loadInvoiceCodes();
+  }
+
+  Future<void> _loadInvoiceCodes() async {
+    try {
+      final result = await widget.api.electronicInvoiceAccount(
+        isClient: widget.isClient,
+      );
+      if (mounted && result['account'] is Map) {
+        setState(
+          () => _account = Map<String, dynamic>.from(result['account'] as Map),
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Belge kodları yüklenemedi: $error');
+    }
+  }
+
+  List<String> get _savedSeries {
+    final type = _documentType == 'AUTO'
+        ? (_recipient == null
+              ? null
+              : _recipient?['is_einvoice_user'] == true
+              ? 'EINVOICE'
+              : 'EARCHIVE')
+        : _documentType;
+    if (type == null || _account == null) return [];
+    final field = type == 'EINVOICE' ? 'einvoice' : 'earchive';
+    final stored = _account!['${field}_series'];
+    return {
+      if (_account!['${field}_serie'] is String)
+        '${_account!['${field}_serie']}',
+      if (stored is List) ...stored.map((value) => '$value'),
+    }.where((code) => RegExp(r'^[A-Z]{3}$').hasMatch(code)).toList();
   }
 
   @override
@@ -557,7 +592,12 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
         identifier,
         isClient: widget.isClient,
       );
-      if (mounted) setState(() => _recipient = result);
+      if (mounted)
+        setState(() {
+          _recipient = result;
+          _form['serie']!.clear();
+          _number = null;
+        });
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     } finally {
@@ -1164,6 +1204,31 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Card(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'FATURA OLUŞTUR',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _documentType == 'EARCHIVE' ? 'E-Arşiv Fatura' : 'E-Fatura',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Fatura bilgileri → Alıcı → Mal ve hizmetler → Toplamlar',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         DropdownButtonFormField<String>(
           initialValue: _documentType,
           decoration: const InputDecoration(labelText: 'Belge türü'),
@@ -1175,6 +1240,7 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
           onChanged: (value) => setState(() {
             _documentType = value ?? _documentType;
             _number = null;
+            _form['serie']!.clear();
           }),
         ),
         const SizedBox(height: 10),
@@ -1189,6 +1255,19 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
             if (value != null && value != _invoiceType) {
               _invoiceType = value;
               _accountingPartnerId = null;
+              for (final line in _lines) {
+                for (final tax in line.taxes) {
+                  tax.dispose();
+                }
+                line.taxes.clear();
+                line.deductionCode = '';
+                line.eligibilityConfirmed = false;
+                line.fields['deduction_rate']!.clear();
+                line.fields['deduction_base']!.clear();
+                line.fields['withholding_code']!.clear();
+                line.fields['withholding_rate']!.clear();
+                line.fields['bsmv_rate']!.clear();
+              }
             }
           }),
         ),
@@ -1226,7 +1305,28 @@ class _EInvoiceComposerPageState extends State<EInvoiceComposerPage> {
         _field('postal_code', 'Posta kodu'),
         const SectionHeader(title: 'Belge'),
         _field('issue_date', 'Fatura tarihi (YYYY-AA-GG)'),
-        _field('serie', 'Seri (3 harf)'),
+        DropdownButtonFormField<String>(
+          key: ValueKey(
+            'invoice-series-${_documentType}-${_savedSeries.join(',')}-${_v('serie')}',
+          ),
+          initialValue: _savedSeries.contains(_v('serie')) ? _v('serie') : null,
+          decoration: const InputDecoration(labelText: 'Fatura kodu (3 harf)'),
+          hint: Text(
+            _documentType == 'AUTO' && _recipient == null
+                ? 'Önce mükellefiyeti kontrol edin'
+                : 'Kayıtlı kod seçin',
+          ),
+          items: [
+            for (final code in _savedSeries)
+              DropdownMenuItem(value: code, child: Text(code)),
+          ],
+          onChanged: _savedSeries.isEmpty
+              ? null
+              : (value) => setState(() {
+                  _form['serie']!.text = value ?? '';
+                  _number = null;
+                }),
+        ),
         OutlinedButton.icon(
           onPressed: _busy ? null : _previewNumber,
           icon: const Icon(Icons.tag),

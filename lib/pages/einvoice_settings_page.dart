@@ -42,8 +42,10 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
     'sender_mersis_no': 'MERSİS no',
     'sender_trade_registry_no': 'Ticaret sicil no',
     'einvoice_serie': 'E-Fatura serisi',
+    'einvoice_series': 'Ek E-Fatura kodları (virgülle ayırın)',
     'einvoice_last_document_no': 'Son E-Fatura no',
     'earchive_serie': 'E-Arşiv serisi',
+    'earchive_series': 'Ek E-Arşiv kodları (virgülle ayırın)',
     'earchive_last_document_no': 'Son E-Arşiv no',
     'despatch_serie': 'E-İrsaliye serisi',
     'esmm_serie': 'E-SMM serisi',
@@ -68,7 +70,17 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
     _account = account is Map ? Map<String, dynamic>.from(account) : null;
     for (final entry in _fields.entries) {
       if (entry.key != 'izibiz_password') {
-        entry.value.text = '${_account?[entry.key] ?? ''}';
+        final saved = _account?[entry.key];
+        entry.value.text = saved is List
+            ? saved
+                  .map((code) => '$code')
+                  .where(
+                    (code) =>
+                        code !=
+                        _account?[entry.key.replaceFirst('_series', '_serie')],
+                  )
+                  .join(', ')
+            : '${saved ?? ''}';
       }
     }
     _environment = '${_account?['environment'] ?? 'PRODUCTION'}';
@@ -84,6 +96,15 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
   }
 
   String _value(String key) => _fields[key]!.text.trim();
+
+  List<String> _series(String kind) => {
+    if (_value('${kind}_serie').isNotEmpty)
+      _value('${kind}_serie').toUpperCase(),
+    ..._value('${kind}_series')
+        .split(RegExp(r'[\s,;]+'))
+        .where((code) => code.isNotEmpty)
+        .map((code) => code.toUpperCase()),
+  }.toList();
 
   String? _validationError() {
     if (_value('izibiz_username').isEmpty)
@@ -118,6 +139,17 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
         return '${_fieldLabels[pair.$2]} seriyle başlamalı ve 16 karakter olmalı.';
       }
     }
+    final invoiceCodes = _series('einvoice');
+    final archiveCodes = _series('earchive');
+    if ([
+      ...invoiceCodes,
+      ...archiveCodes,
+    ].any((code) => !RegExp(r'^[A-Z]{3}$').hasMatch(code))) {
+      return 'Her ek belge kodu üç harf olmalı.';
+    }
+    if (invoiceCodes.any(archiveCodes.contains)) {
+      return 'E-Fatura ve E-Arşiv kodları farklı olmalı.';
+    }
     return null;
   }
 
@@ -143,6 +175,8 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
           'sender_name',
           'einvoice_last_document_no',
           'earchive_last_document_no',
+          'einvoice_series',
+          'earchive_series',
         }.contains(key))
           key: _value(key).isEmpty
               ? null
@@ -150,6 +184,8 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
               ? _value(key).toUpperCase()
               : _value(key),
     };
+    payload['einvoice_series'] = _series('einvoice');
+    payload['earchive_series'] = _series('earchive');
     for (final key in const [
       'einvoice_last_document_no',
       'earchive_last_document_no',
@@ -345,8 +381,10 @@ class _EInvoiceSettingsPageState extends State<EInvoiceSettingsPage> {
             const SectionHeader(title: 'Seri ve Numaralandırma'),
             for (final key in const [
               'einvoice_serie',
+              'einvoice_series',
               'einvoice_last_document_no',
               'earchive_serie',
+              'earchive_series',
               'earchive_last_document_no',
               'despatch_serie',
               'esmm_serie',

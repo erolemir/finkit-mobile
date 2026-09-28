@@ -13,6 +13,18 @@ class ComposerApi extends FinkitApi {
   Map<String, dynamic>? savedDraft;
 
   @override
+  Future<Map<String, dynamic>> electronicInvoiceAccount({
+    required bool isClient,
+  }) async => {
+    'account': {
+      'einvoice_serie': 'SYN',
+      'einvoice_series': ['SYN', 'ABC'],
+      'earchive_serie': 'EAR',
+      'earchive_series': ['EAR', 'ARC'],
+    },
+  };
+
+  @override
   Future<List<Map<String, dynamic>>> searchPartners(String search) async => [
     {
       'id': 9,
@@ -86,6 +98,32 @@ Future<void> scrollTo(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets('registered invoice codes appear in the composer dropdown', (
+    tester,
+  ) async {
+    final api = ComposerApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EInvoiceComposerPage(
+          api: api,
+          isClient: false,
+          documentType: 'EINVOICE',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await scrollTo(tester, 'Fatura kodu (3 harf)');
+    final seriesField = find.byKey(
+      const ValueKey('invoice-series-EINVOICE-SYN,ABC-'),
+    );
+    await tester.ensureVisible(seriesField);
+    await tester.pumpAndSettle();
+    await tester.tap(seriesField);
+    await tester.pumpAndSettle();
+    expect(find.text('SYN'), findsWidgets);
+    expect(find.text('ABC'), findsWidgets);
+    expect(find.text('ARC'), findsNothing);
+  });
   testWidgets('YTB return sends all invoice references', (tester) async {
     final api = ComposerApi();
     await tester.pumpWidget(
